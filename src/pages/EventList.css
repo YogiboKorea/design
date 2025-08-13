@@ -1,0 +1,16 @@
+/* src/pages/EventList.css (선택) */
+
+.ant-table {
+  /* 필요시 스타일 커스터마이징 */
+}
+
+
+
+@media (max-width: 500px) {
+  .eventList{
+    width:95%!important;
+    margin:0 auto!important;;
+    margin-top:20px!important;;
+  }
+
+}

@@ -1,0 +1,157 @@
+/* src/pages/EventCreate.css */
+
+/* 카드 레이아웃 */
+.event-create-card {
+  margin: 0 auto;
+  min-height: 80vh;
+}
+
+/* 이미지 업로드 드래거 박스 */
+.dragger {
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+  max-width: 1400px;
+  margin: 0 auto 24px;
+}
+
+/* 썸네일 리스트 */
+.thumb-list {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  max-width: 1400px;
+  margin: 0 auto 16px;
+}
+
+/* 썸네일 아이템 */
+.thumb-item {
+  flex: 0 0 auto;
+  width: 100px;
+  height: 80px;
+  position: relative;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.thumb-item.active {
+  border-color: #1890ff;
+}
+
+.thumb-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 썸네일 삭제 버튼 */
+.thumb-delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 2px;
+  padding: 2px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.thumb-list {
+  /* IE/Edge */
+  -ms-overflow-style: none;
+  /* Firefox */
+  scrollbar-width: none;
+}
+
+.thumb-list::-webkit-scrollbar {
+  display: none;
+  /* Chrome, Safari, Opera */
+}
+
+/* 매핑 이미지 컨테이너 */
+.mapping-container {
+  position: relative;
+  margin-top: 16px;
+  text-align: center;
+}
+
+/* 매핑 대상 이미지 */
+.mapping-image {
+  width: 100%;
+  display: block;
+  user-drag: none;
+}
+
+/* 드래그 박스 (영역 선택) */
+.drag-box {
+  position: absolute;
+  border: 2px dashed #1890ff;
+  background: rgba(24, 144, 255, 0.2);
+  pointer-events: none;
+}
+
+/* 매핑된 영역 */
+.mapped-region {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+/* 상품 그리드 미리보기 */
+.preview-grid {
+  display: grid;
+  gap: 10px;
+  max-width: 800px;
+  margin: 24px auto 0;
+}
+
+.placeholder-box {
+  background: #f0f0f0;
+  height: 120px;
+  border-radius: 4px;
+}
+
+/* Segmented 버튼 균등 분할 */
+.full-seg .ant-segmented-item {
+  flex: 1;
+  text-align: center;
+}
+.preview-tabs .ant-btn {
+  flex: 1;
+}
+
+@media (max-width: 500px) {
+  
+  .event-create-card  {
+    width:95%!important;
+    margin:0 auto!important;
+    margin-top:20px!important;
+  }
+  .tabPlusCategory .ant-space .ant-space-item {
+    width:95%!important;
+    margin:0 auto!important;
+    text-align:center;
+  }
+  
+  .tabPlusCategory .ant-btn{max-width:150px;}
+  
+  .tabPlusCategory .ant-space{background:#fff;}
+
+  /*상품등록 직접상품등록 버튼*/
+  .goodsSingleButton{margin-top:10px!important;}
+
+  .tabListPlus .ant-space-item{
+    width:100%;
+    background:#fff;
+  }
+  .tabListPlus  .ant-space{padding-block:10px!important;}
+  .tabListPlus .ant-space-gap-row-small{background:#fff;}
+  /*썸네일*/
+  .thumb-list{flex-direction: row!important;}
+  .sumTumb{flex-direction: row!important;}
+}
+
+
+

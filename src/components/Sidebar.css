@@ -1,0 +1,83 @@
+/* src/components/Sidebar.css */
+
+.sidebar-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  height: 64px;
+  background: #000;
+  /* AntD dark 색상과 같게 */
+}
+
+
+:where(.css-dev-only-do-not-override-3kvbe2).ant-menu-dark,
+:where(.css-dev-only-do-not-override-3kvbe2).ant-menu-dark>.ant-menu{background:#000!important;}
+.sidebar-logo {
+  max-height: 32px;
+  max-width: 100%;
+  margin-right: 8px;
+}
+.ant-menu-title-content{color:#fff!important;}
+.ant-table-cell a{color:#000!important;}
+.collapse-icon {
+  font-size: 20px;
+  color: #fff;
+  cursor: pointer;
+}
+.ant-menu{background:#000;}
+
+.ant-layout-sider-trigger,
+.ant-layout-sider-zero-width-trigger {
+  display: none !important;
+}
+
+/* Sidebar.css (기존 스타일 + 오버레이 레이아웃 스타일) */
+
+/* 공통 레이아웃 높이 고정 */
+.overlay-layout {
+  height: 100vh;
+}
+
+/* 모바일 헤더 */
+.overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  height: 64px;
+  padding: 0 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+/* 햄버거 버튼 */
+.overlay-trigger {
+  font-size: 20px;
+}
+
+/* 모바일 컨텐츠 전폭 */
+.overlay-content {
+  margin: 0;
+  padding: 16px;
+}
+
+/* AppHeader 우측 회원정보 */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 사이드바 접고 펼 때 애니메이션 */
+.ant-layout-sider {
+  transition: width 0.2s ease;
+}
+
+.hamButton{
+  margin-left:15px;
+}
