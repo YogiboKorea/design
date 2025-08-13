@@ -62,7 +62,7 @@ function getYouTubeId(input) {
 const buildYouTubeSrc = (id, autoplay = false, loop = false) => {
   const params = new URLSearchParams({
     autoplay: autoplay ? '1' : '0',
-    mute: autoplay ? '1' : '0',      // 모바일 자동재생 위해 mute 권장
+    mute: autoplay ? '1' : '0', // 모바일 자동재생 위해 mute 권장
     playsinline: '1',
     rel: '0',
     modestbranding: '1',
@@ -354,6 +354,24 @@ export default function EventCreate() {
       return a;
     });
   };
+  // removeTab : 최소 2개는 유지. 삭제 시 tabDirectProducts 재정렬(인덱스 shift)
+  const removeTab = (index) => {
+    setTabs(prevTabs => {
+      if (prevTabs.length <= 2) return prevTabs; // 최소 2개 유지
+      const nextTabs = prevTabs.filter((_, i) => i !== index);
+      return nextTabs;
+    });
+    // shift tabDirectProducts keys
+    setTabDirectProducts(prev => {
+      const next = {};
+      const keys = Object.keys(prev).map(k => Number(k)).filter(k => !Number.isNaN(k)).sort((a,b)=>a-b);
+      keys.forEach(k => {
+        if (k < index) next[k] = prev[k];
+        else if (k > index) next[k-1] = prev[k];
+      });
+      return next;
+    });
+  };
 
   // 쿠폰 목록
   const [couponOptions, setCouponOptions] = useState([]);
@@ -474,6 +492,9 @@ export default function EventCreate() {
       setSingleRoot(null);
       setSingleSub(null);
       setActiveColor('#fe6326');
+    } else {
+      // if switching back to category/direct, ensure layoutType has a sane default
+      if (!layoutType) setLayoutType('single');
     }
   };
 
@@ -871,25 +892,15 @@ export default function EventCreate() {
                           onChange={(e) => {
                             const checked = e.target.checked;
                             setBlocks(prev =>
-                              prev.map(b => b.id === selectedBlock.id ? { ...b, autoplay: checked } : b)
+                              prev.map(b => b.id === selectedBlock.id ? { ...b, autoplay: checked, loop: checked ? true : b.loop } : b)
                             );
                           }}
                           style={{ marginRight: 12 }}
                         >
-                          자동 재생
+                          자동 재생 (자동재생 시 반복이 자동 적용됩니다)
                         </Checkbox>
 
-                        {/* <Checkbox
-                          checked={!!selectedBlock.loop}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setBlocks(prev =>
-                              prev.map(b => b.id === selectedBlock.id ? { ...b, loop: checked } : b)
-                            );
-                          }}
-                        >
-                          무한 반복
-                        </Checkbox> */}
+                        {/* loop 체크박이는 자동 설정으로 제거됨 */}
                       </div>
 
                       {addingMode && (
@@ -995,7 +1006,7 @@ export default function EventCreate() {
                 {layoutType === 'tabs' && (
                   <>
                     {tabs.map((t, i) => (
-                      <Space key={i} size="middle" style={{ marginTop: 16 }}>
+                      <Space key={i} size="middle" style={{ marginTop: 16, alignItems: 'center' }}>
                         <Input
                           placeholder={`탭 ${i + 1} 제목`}
                           style={{ width: 120 }}
@@ -1018,6 +1029,17 @@ export default function EventCreate() {
                               </Select.Option>
                             ))}
                         </Select>
+
+                        {/* 삭제 버튼: 탭이 3개 이상일 때만 보여주어 최소 2개 유지 */}
+                        {tabs.length >= 3 && (
+                          <DeleteOutlined
+                            onClick={() => {
+                              // 확인 없이 바로 삭제 (원하면 confirm 추가 가능)
+                              removeTab(i);
+                            }}
+                            style={{ cursor: 'pointer', color: '#ff4d4f' }}
+                          />
+                        )}
                       </Space>
                     ))}
                     <Button type="dashed" block style={{ marginTop: 16 }} onClick={addTab} disabled={tabs.length >= 4}>
@@ -1076,7 +1098,7 @@ export default function EventCreate() {
                 {layoutType === 'tabs' && (
                   <>
                     {tabs.map((t, i) => (
-                      <Space key={i} size="middle" style={{ marginTop: 16 }}>
+                      <Space key={i} size="middle" style={{ marginTop: 16, alignItems: 'center' }}>
                         <Input
                           placeholder={`탭 ${i + 1} 제목`}
                           style={{ width: 120 }}
@@ -1091,6 +1113,14 @@ export default function EventCreate() {
                             ? `상품 ${(tabDirectProducts[i] || []).length}개 등록됨`
                             : '상품 직접 등록'}
                         </Button>
+
+                        {/* 삭제 버튼: 탭이 3개 이상일 때만 보이도록 (최소 2개 유지) */}
+                        {tabs.length >= 3 && (
+                          <DeleteOutlined
+                            onClick={() => removeTab(i)}
+                            style={{ cursor: 'pointer', color: '#ff4d4f' }}
+                          />
+                        )}
                       </Space>
                     ))}
                     <Button type="dashed" block style={{ marginTop: 16 }} onClick={addTab} disabled={tabs.length >= 4}>
@@ -1241,7 +1271,7 @@ export default function EventCreate() {
           videoForm.resetFields();
         }}
         onOk={() => {
-          const { urlOrId, aspectW = 16, aspectH = 9, autoplay = false, loop = false } = videoForm.getFieldsValue();
+          const { urlOrId, aspectW = 16, aspectH = 9, autoplay = false } = videoForm.getFieldsValue();
           const vid = getYouTubeId(urlOrId);
           if (!vid) return msgApi.error('유효한 YouTube 링크/ID가 아닙니다.');
           const id = Date.now().toString() + Math.random();
@@ -1253,7 +1283,7 @@ export default function EventCreate() {
               youtubeId: vid,
               ratio: { w: Number(aspectW) || 16, h: Number(aspectH) || 9 },
               autoplay: !!autoplay,              // ✅ 저장!
-              loop: !!loop,                      // ✅ 저장!
+              loop: !!autoplay,                  // autoplay일 때 loop 강제
             }
           ]);
           setSelectedId(id);
@@ -1263,7 +1293,7 @@ export default function EventCreate() {
         }}
         width={isMobile ? '90%' : 520}
       >
-        <Form form={videoForm} layout="vertical" initialValues={{ aspectW: 16, aspectH: 9, autoplay: false, loop: false }}>
+        <Form form={videoForm} layout="vertical" initialValues={{ aspectW: 16, aspectH: 9, autoplay: false }}>
           <Form.Item name="urlOrId" label="YouTube 링크 또는 영상 ID" rules={[{ required: true, message: 'YouTube 링크/ID를 입력하세요.' }]}>
             <Input placeholder="예: https://youtu.be/XXXXXXXXXXX 또는 영상 ID" />
           </Form.Item>
@@ -1279,9 +1309,7 @@ export default function EventCreate() {
           <Form.Item name="autoplay" valuePropName="checked" style={{ marginTop: 8 }}>
             <Checkbox>자동재생 (자동재생 여부 체크)</Checkbox>
           </Form.Item>
-          {/* <Form.Item name="loop" valuePropName="checked" style={{ marginTop: 4 }}>
-            <Checkbox>무한 반복 (재생 완료 후 다시 시작)</Checkbox>
-          </Form.Item> */}
+          {/* loop 체크박이는 UI에서 제거 — autoplay일 때 loop 자동 적용 */}
         </Form>
       </Modal>
       {/* 텍스트 모달 */}
