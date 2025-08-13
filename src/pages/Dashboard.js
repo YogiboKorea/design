@@ -103,6 +103,7 @@ export default function Dashboard() {
       .then(res => {
         const list = res.data || [];
         setUrls(list);
+        // 기본 선택: 가장 최근에 등록된 URL이 앞쪽에 오도록 보장되어 있다면 list[0]을 사용
         setSelectedUrl(list[0] || null);
       })
       .catch(() => message.error('URL 목록을 불러오지 못했습니다.'));
@@ -256,7 +257,30 @@ export default function Dashboard() {
       }
     }]
   };
-  
+
+  // ─── 이벤트 페이지 이동 기능 추가 ───────────────────────────────
+  // 기본 도메인 (요구하신 대로 하드코딩). 필요한 경우 환경변수로 변경하세요.
+  const SITE_BASE = 'https://yogibo.kr';
+
+  const openEventPage = () => {
+    // 선택된 URL 우선, 없으면 urls[0] (가장 최근 등록된 것으로 가정), 없으면 fallback 'test.html'
+    const urlCandidate = selectedUrl || (urls && urls.length > 0 ? urls[0] : null) || 'test.html';
+    let full = urlCandidate;
+
+    // if already absolute URL, open directly
+    if (!/^https?:\/\//i.test(urlCandidate)) {
+      // ensure it does not produce double slashes
+      if (urlCandidate.startsWith('/')) full = `${SITE_BASE}${urlCandidate}`;
+      else full = `${SITE_BASE}/${urlCandidate}`;
+    }
+
+    try {
+      window.open(full, '_blank');
+      message.success(`이벤트 페이지로 이동: ${full}`);
+    } catch (e) {
+      message.error('새 창을 열 수 없습니다.');
+    }
+  };
 
   // ─── 렌더링 ───────────────────────────────────────────────────
   return (
@@ -291,6 +315,10 @@ export default function Dashboard() {
             />
           </Col>
           <Col><Button type="primary" onClick={fetchData}>조회</Button></Col>
+
+          {/* 이 버튼은 이제 선택된(또는 가장 최근) URL로 새 탭을 엽니다 */}
+          <Col><Button type="primary" onClick={openEventPage}>이벤트 페이지 이동</Button></Col>
+
           <Col flex="auto" />
           <Col className="kpi-col"><Statistic title="전체 이벤트 수" value={eventCount} suffix="개" valueStyle={{ fontSize: 18 }}  style={{textAlign:'center'}}/></Col>
           <Col  className="kpi-col" ><Statistic title="전체 쿠폰 수" value={couponCount} suffix="개" style={{ marginLeft: 16,textAlign:'center' }}  valueStyle={{ fontSize: 18 }}/></Col>
@@ -308,7 +336,7 @@ export default function Dashboard() {
         {/* 2열: 쿠폰 다운로드/주문 완료 통계 */}
         <Col xs={24} md={12}>
           <Card
-            title="쿠폰 다운로드 / 주문 완료 통계"
+            title="쿠폰 다운로드 / 주문 완료 통계"
             style={{
               height: 320,
               overflowY: 'auto',
