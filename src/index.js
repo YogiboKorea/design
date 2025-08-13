@@ -31,7 +31,7 @@ root.render(
         token: {
          colorPrimary: '#0b85ef',     // 기본
          colorPrimaryHover: '#00bdd4', // 호버 (원본보다 약간 밝게)
-          colorPrimaryActive: '#0088ff',// 클릭(Active, 약간 어둡게)
+          colorPrimaryActive: '#0b85ef',// 클릭(Active, 약간 어둡게)
           fontFamily: `'Noto Sans KR', sans-serif`
         },
       }}
