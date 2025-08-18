@@ -202,7 +202,7 @@ export default function Dashboard() {
         }, { issued: 0, used: 0, unused: 0, autoDel: 0 });
         setCouponTotals(tot);
       })
-      .catch(() => message.error(''))
+      //.catch(() => message.error(''))
       .finally(() => setLoading(false));
   };
 
