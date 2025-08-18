@@ -44,8 +44,10 @@ export default function StatEventVisitors() {
   const [events, setEvents]               = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
 
-  const [urls, setUrls]                   = useState([]);
-  const [selectedUrl, setSelectedUrl]     = useState(null);
+  const [urls, setUrls]                   = useState([]); // 원본 URL 리스트
+  const [urlOptions, setUrlOptions]       = useState([]); // select options (label/value/title)
+  const [urlMap, setUrlMap]               = useState(new Map()); // normalized -> [originals]
+  const [selectedUrl, setSelectedUrl]     = useState(null); // 정규화된 값으로 저장
 
   const [range, setRange]                 = useState([dayjs().subtract(7, 'day'), dayjs()]);
   const [minDate, setMinDate]             = useState(null);
@@ -53,22 +55,33 @@ export default function StatEventVisitors() {
   const [data, setData]                   = useState([]);
   const [loading, setLoading]             = useState(false);
 
-  // ─── helper: 선행 '/', 숫자-segment, skin-mobile, skin-<anything> 반복 제거 후 정규화 ----
+  // ─── helper: 정규화 (앞부분 skin-..., 숫자/슬래시 제거, 쿼리/해시 제거, trim) ─────────
   const normalizePath = (urlCandidate) => {
     if (!urlCandidate) return '/';
-    // 절대 URL이면 그대로 반환 (http(s) 포함)
-    if (/^https?:\/\//i.test(urlCandidate)) return urlCandidate;
+    // 절대 URL이면 pathname만 추출해서 정규화 (쿼리/해시 제거)
+    if (/^https?:\/\//i.test(urlCandidate)) {
+      try {
+        const p = new URL(urlCandidate);
+        urlCandidate = p.pathname || '';
+      } catch (e) {
+        urlCandidate = String(urlCandidate);
+      }
+    }
 
     let s = String(urlCandidate).trim();
 
-    // remove leading slashes so patterns match consistently ("/67/test.html" -> "67/test.html")
+    // 쿼리나 해시 제거
+    s = s.split(/[?#]/)[0];
+
+    // remove leading slashes
     s = s.replace(/^\/+/, '');
+
     if (!s) return '/';
 
+    // strip trailing slashes
+    s = s.replace(/\/+$/, '');
+
     // patterns to strip repeatedly from the start:
-    // - skin-mobile/
-    // - skin-<anything>/   (covers skin-skin98 etc)
-    // - numeric segment like "67/" or "123/"
     const patterns = [
       /^skin-mobile\/?/i,
       /^skin-[^\/]+\/?/i,
@@ -89,12 +102,6 @@ export default function StatEventVisitors() {
     if (!s) return '/';
     if (!s.startsWith('/')) s = '/' + s;
     return s;
-  };
-
-  const displayLabel = (u) => {
-    if (!u) return u;
-    if (/^https?:\/\//i.test(u)) return u;
-    return normalizePath(u);
   };
 
   // ─── 1) 이벤트 목록 로드 & 기본 설정 ───────────────────────
@@ -128,6 +135,8 @@ export default function StatEventVisitors() {
   useEffect(() => {
     if (!mallId || !selectedEvent) {
       setUrls([]);
+      setUrlOptions([]);
+      setUrlMap(new Map());
       setSelectedUrl(null);
       setMinDate(null);
       return;
@@ -136,14 +145,35 @@ export default function StatEventVisitors() {
     // URL 목록
     api.get(`/api/${mallId}/analytics/${selectedEvent}/urls`)
       .then(res => {
-        const list = res.data || [];
+        const list = Array.isArray(res.data) ? res.data : [];
         setUrls(list);
-        setSelectedUrl(list[0] || null);
+
+        // normalized map 생성
+        const normalizedMap = new Map();
+        for (const orig of list) {
+          const n = normalizePath(orig);
+          if (!normalizedMap.has(n)) normalizedMap.set(n, [orig]);
+          else normalizedMap.get(n).push(orig);
+        }
+
+        // options 생성: label은 "/test1.html (2)" 같이 보이고, value는 정규화된 값,
+        // title에 원본을 join 해두면 브라우저 툴팁으로 확인 가능
+        const options = Array.from(normalizedMap.entries()).map(([norm, originals]) => {
+          const count = originals.length;
+          const label = count > 1 ? `${norm}` : norm;
+          return { label, value: norm };
+        });
+
+        setUrlOptions(options);
+        setUrlMap(normalizedMap);
+        setSelectedUrl(options.length ? options[0].value : null);
       })
       .catch(err => {
         console.error('[URLS LOAD ERROR]', err);
         message.error('URL 목록을 불러오지 못했습니다.');
         setUrls([]);
+        setUrlOptions([]);
+        setUrlMap(new Map());
         setSelectedUrl(null);
       });
 
@@ -156,7 +186,65 @@ export default function StatEventVisitors() {
     }
   }, [mallId, selectedEvent, events]);
 
-  // ─── 3) 방문자 통계 조회 ───────────────────────────────────
+  // ─── helper: 후보 URL 배열 생성 (정규화 + 원본 + 변형(슬래시 유무)) ─────────────────
+  const buildUrlCandidates = (normalized) => {
+    const candidates = new Set();
+    if (!normalized) return [];
+    // normalized (leading slash)
+    candidates.add(normalized);
+    // without leading slash
+    candidates.add(normalized.replace(/^\//, ''));
+    // if urlMap has originals, add them + their slash/no-slash variants
+    const originals = urlMap.get(normalized) || [];
+    originals.forEach(o => {
+      candidates.add(o);
+      candidates.add(o.replace(/^\/+/, ''));
+      // also try versions stripped of query/hash
+      candidates.add(String(o).split(/[?#]/)[0]);
+      candidates.add(String(o).split(/[?#]/)[0].replace(/^\/+/, ''));
+    });
+    return Array.from(candidates);
+  };
+
+  // ─── helper: 여러 API 응답을 날짜별로 합병 (sum numeric fields) ───────────────
+  const mergeResponsesByDate = (responsesArray) => {
+    // responsesArray: array of arrays (each inner is [{date, totalVisitors, newVisitors, returningVisitors, revisitRate?}, ...])
+    const map = new Map();
+    responsesArray.forEach(arr => {
+      if (!Array.isArray(arr)) return;
+      arr.forEach(rec => {
+        const date = rec.date;
+        if (!map.has(date)) {
+          // copy numeric fields defensively
+          map.set(date, {
+            date,
+            totalVisitors: rec.totalVisitors || 0,
+            newVisitors: rec.newVisitors || 0,
+            returningVisitors: rec.returningVisitors || 0,
+            // revisitRate left as-is (we'll compute later if needed)
+            revisitRate: rec.revisitRate || '0 %'
+          });
+        } else {
+          const cur = map.get(date);
+          cur.totalVisitors += rec.totalVisitors || 0;
+          cur.newVisitors += rec.newVisitors || 0;
+          cur.returningVisitors += rec.returningVisitors || 0;
+          // revisitRate recompute as new/total if total > 0
+          if (cur.totalVisitors > 0) {
+            const rate = Math.round((cur.returningVisitors / cur.totalVisitors) * 100);
+            cur.revisitRate = `${rate} %`;
+          } else {
+            cur.revisitRate = '0 %';
+          }
+        }
+      });
+    });
+
+    // produce sorted array by date (ascending)
+    return Array.from(map.values()).sort((a,b) => a.date.localeCompare(b.date));
+  };
+
+  // ─── 3) 방문자 통계 조회 (개선판: 후보 URL 여러개로 시도/병합) ─────────────────
   const fetchStats = async () => {
     if (!mallId || !selectedEvent) {
       message.warning('이벤트를 선택하세요.');
@@ -169,23 +257,37 @@ export default function StatEventVisitors() {
 
     setLoading(true);
     const [start, end] = range.map(d => d.format('YYYY-MM-DD'));
+
     try {
       const normalizedSelected = normalizePath(selectedUrl);
+      const candidates = buildUrlCandidates(normalizedSelected);
+      if (candidates.length === 0) {
+        // fallback: single normalized
+        candidates.push(normalizedSelected);
+      }
 
-      const visRes = await api.get(
-        `/api/${mallId}/analytics/${selectedEvent}/visitors-by-date`,
-        {
+      // 병렬로 각 후보 URL에 대해 API 호출 (실패하면 빈 배열로)
+      const promises = candidates.map(candidate =>
+        api.get(`/api/${mallId}/analytics/${selectedEvent}/visitors-by-date`, {
           params: {
             start_date: `${start}T00:00:00+09:00`,
             end_date:   `${end}T23:59:59.999+09:00`,
-            url:        normalizedSelected,
+            url:        candidate,
           }
-        }
+        })
+        .then(res => Array.isArray(res.data) ? res.data : [])
+        .catch(err => {
+          // 콘솔에 에러만 남기고 빈 배열 반환 — 다른 후보가 보완할 수 있음
+          console.warn('visitors-by-date failed for', candidate, err && err.message);
+          return [];
+        })
       );
-      const raw = Array.isArray(visRes.data) ? visRes.data : [];
 
-      // 빈 날짜 0으로 채우기
-      const lookup = new Map(raw.map(o => [o.date, o]));
+      const responses = await Promise.all(promises); // array of arrays
+      // 합병
+      const merged = mergeResponsesByDate(responses);
+
+      // 날짜 축 생성 및 빈 날짜 채우기 (원래 로직과 동일하게)
       const days = [];
       let cur = range[0].startOf('day'),
           last = range[1].startOf('day');
@@ -194,6 +296,8 @@ export default function StatEventVisitors() {
         cur = cur.add(1, 'day');
       }
 
+      // create lookup from merged
+      const lookup = new Map(merged.map(o => [o.date, o]));
       const tableData = days.map(date => {
         const o = lookup.get(date) || {};
         return {
@@ -249,11 +353,19 @@ export default function StatEventVisitors() {
           />
           <Select
             placeholder="URL 선택"
-            options={urls.map(u => ({ label: displayLabel(u), value: u }))}
+            options={urlOptions}
             value={selectedUrl}
             onChange={setSelectedUrl}
             allowClear
             style={{ width: isMobile ? '100%' : 240, minWidth: 120 }}
+            showSearch
+            optionLabelProp="value"
+            filterOption={(input, option) => {
+              const val = (option?.value || '').toString().toLowerCase();
+              const lab = (option?.label || '').toString().toLowerCase();
+              const needle = (input || '').toLowerCase();
+              return val.includes(needle) || lab.includes(needle);
+            }}
           />
 
           {isMobile ? (
