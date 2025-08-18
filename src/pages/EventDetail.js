@@ -1,6 +1,6 @@
 // src/pages/EventDetail.jsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Card,
   Button,
@@ -8,6 +8,7 @@ import {
   message,
   Modal,
   Input,
+  Alert,
 } from 'antd';
 import {
   UnorderedListOutlined,
@@ -23,6 +24,141 @@ const API_BASE =
   process.env.REACT_APP_API_BASE_URL ||
   'https://port-0-ychat-lzgmwhc4d9883c97.sel4.cloudtype.app';
 
+// -----------------------------
+// YouTubeAuto: IFrame API 기반 재생 시도 컴포넌트
+// -----------------------------
+function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, aspectH = 9, title = 'YouTube video' }) {
+  const containerRef = useRef(null);
+  const playerRef = useRef(null);
+  const [needsInteraction, setNeedsInteraction] = useState(false);
+
+  useEffect(() => {
+    if (!videoId) return;
+    let mounted = true;
+
+    const createPlayer = () => {
+      if (!window.YT || !window.YT.Player) {
+        setNeedsInteraction(true);
+        return;
+      }
+
+      try {
+        // destroy 이전 인스턴스
+        if (playerRef.current && playerRef.current.destroy) playerRef.current.destroy();
+      } catch (e) {}
+
+      playerRef.current = new window.YT.Player(containerRef.current, {
+        videoId,
+        width: '100%',
+        height: '100%',
+        playerVars: {
+          autoplay: autoplay ? 1 : 0,
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          enablejsapi: 1,
+          loop: loop ? 1 : 0,
+          playlist: loop ? videoId : undefined,
+          // origin: window.location.origin // 필요시 활성화
+        },
+        events: {
+          onReady: (e) => {
+            if (!mounted) return;
+            try {
+              if (autoplay) {
+                // iOS/브라우저 정책 대응: mute -> play 시도
+                e.target.mute?.();
+                const p = e.target.playVideo?.();
+                // play가 거부 당할 수 있으므로 일정 시간 후 상태 확인
+                setTimeout(() => {
+                  try {
+                    const state = e.target.getPlayerState?.();
+                    if (typeof state === 'number' && state !== 1) {
+                      setNeedsInteraction(true);
+                    }
+                  } catch (err) {
+                    setNeedsInteraction(true);
+                  }
+                }, 600);
+              }
+              // iframe allow 속성 보장
+              try {
+                const iframe = playerRef.current.getIframe?.();
+                if (iframe) iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+              } catch (err) {}
+            } catch (err) {
+              setNeedsInteraction(true);
+            }
+          },
+          onError: () => {
+            if (mounted) setNeedsInteraction(true);
+          },
+        },
+      });
+    };
+
+    // 로드 로직: API가 있으면 바로, 없으면 스크립트 추가 + 콜백 큐
+    if (window.YT && window.YT.Player) {
+      createPlayer();
+    } else {
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.body.appendChild(tag);
+      }
+      if (!window._ytApiReadyQueue) {
+        window._ytApiReadyQueue = [];
+        const prev = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = function () {
+          if (typeof prev === 'function') prev();
+          window._ytApiReadyQueue.forEach(cb => { try { cb(); } catch (_) {} });
+          window._ytApiReadyQueue = [];
+        };
+      }
+      window._ytApiReadyQueue.push(createPlayer);
+    }
+
+    return () => {
+      mounted = false;
+      try { playerRef.current?.destroy?.(); } catch (_) {}
+    };
+  }, [videoId, autoplay, loop]);
+
+  const requestPlayByUser = () => {
+    try {
+      if (playerRef.current) {
+        // 사용자 터치로 재생 시 언뮤트/플레이 처리 (원하면 그냥 play만)
+        try { playerRef.current.unMute?.(); } catch (_) {}
+        try { playerRef.current.playVideo?.(); } catch (_) {}
+        setNeedsInteraction(false);
+      } else {
+        setNeedsInteraction(true);
+      }
+    } catch (e) {
+      setNeedsInteraction(true);
+    }
+  };
+
+  return (
+    <div style={{ width: '100%', position: 'relative', aspectRatio: `${aspectW} / ${aspectH}` }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} aria-label={title} />
+      {needsInteraction && (
+        <div style={{
+          position: 'absolute', inset: 0, display:'flex', alignItems:'center', justifyContent:'center',
+          background: 'linear-gradient(0deg, rgba(0,0,0,0.25), rgba(0,0,0,0.25))'
+        }}>
+          <button onClick={requestPlayByUser} style={{ padding: '10px 16px', fontSize: 16, borderRadius: 6 }}>
+            ▶ 재생
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// -----------------------------
+// 기존 EventDetail 컴포넌트
+// -----------------------------
 export default function EventDetail() {
   const params        = new URLSearchParams(window.location.search);
   const paramMallId   = params.get('mall_id') || params.get('state');
@@ -63,14 +199,15 @@ export default function EventDetail() {
     return null;
   }
 
-  // YouTube src 빌더 (autoplay, mute, loop(playlist) 포함)
+  // YouTube src 빌더 (autoplay, mute, loop(playlist) 포함) — enablejsapi 추가
   function buildYouTubeSrc(id, autoplay = false, loop = false) {
     const params = new URLSearchParams({
       autoplay: autoplay ? '1' : '0',
-      mute: autoplay ? '1' : '0', // autoplay on -> mute recommended for mobile autoplay
+      mute: autoplay ? '1' : '0',
       playsinline: '1',
       rel: '0',
       modestbranding: '1',
+      enablejsapi: '1'
     });
     if (loop) {
       params.set('loop', '1');
@@ -78,41 +215,6 @@ export default function EventDetail() {
     }
     return `https://www.youtube.com/embed/${id}?${params.toString()}`;
   }
-
-  // 반응형 YouTube 임베드 (상세 페이지 화면용)
-  function YouTubeEmbed({ id, ratioW = 16, ratioH = 9, title = 'YouTube video', autoplay = false, loop = false }) {
-    if (!id) {
-      return (
-        <div style={{
-          width:'100%', maxWidth:800, margin:'0 auto',
-          background:'#eee', color:'#666',
-          display:'flex', alignItems:'center', justifyContent:'center',
-          height: Math.round((ratioH/ratioW) * 800)
-        }}>
-          <span style={{fontSize:14}}>영상 블록 (ID 없음)</span>
-        </div>
-      );
-    }
-
-    const src = buildYouTubeSrc(id, autoplay, loop);
-    const paddingTop = `${(ratioH/ratioW) * 100}%`;
-
-    return (
-      <div style={{ width:'100%', maxWidth:800, margin:'0 auto' }}>
-        <div style={{ position:'relative', width:'100%', paddingTop, aspectRatio: `${ratioW} / ${ratioH}` }}>
-          <iframe
-            src={src}
-            title={title}
-            style={{ position:'absolute', inset:0, width:'100%', height:'100%', border:0 }}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            referrerPolicy="strict-origin-when-cross-origin"
-            allowFullScreen
-          />
-        </div>
-      </div>
-    );
-  }
-
 
   // 1) 이벤트 데이터 로드 (+ blocks 정규화)
   useEffect(() => {
@@ -228,11 +330,10 @@ export default function EventDetail() {
       `&opener_url=${encodeURIComponent(window.location.href)}`;
   };
 
-  // HTML 생성 & 모달 열기
+  // HTML 생성 & 모달 열기 (기존 로직 유지 — data-autoplay-all 등 이미 포함)
   const handleShowHtml = () => {
     let html = `<!--@layout(/layout/basic/layout.html)-->\n\n`;
 
-    // 1) 렌더 스냅샷 (server blocks 우선)
     const allBlocks = (event.blocks && event.blocks.length
       ? event.blocks
       : (event.images || []).map(img => ({
@@ -275,11 +376,8 @@ export default function EventDetail() {
       };
     });
 
-
-    // ✅ 텍스트를 따로 빼지 않고 widget.js가 순서대로 렌더하도록 컨테이너만 남김
     html += `<div id="evt-images"></div>\n\n`;
 
-    // 이미지 블록의 쿠폰 수집 → widget.js 전달
     const couponList = Array.from(new Set(
       allBlocks
         .filter(b => b.type === 'image')
@@ -291,7 +389,6 @@ export default function EventDetail() {
       ? ` data-coupon-nos="${couponList.join(',')}"`
       : '';
 
-    // 2) 탭/싱글 레이아웃 HTML (상품 영역 자리)
     if (layoutType === 'tabs') {
       html += `<div class="tabs_${id}">\n`;
       (classification.tabs || []).forEach((t, i) => {
@@ -328,8 +425,6 @@ export default function EventDetail() {
     }
     const hasAnyAutoplay = allBlocks.some(b => b.type === 'video' && Boolean(b.autoplay));
     const hasAnyLoop = allBlocks.some(b => b.type === 'video' && Boolean(b.loop));
-    // 3) widget.js 태그 (DB에서 page-id로 블록을 가져가므로 inline JSON 없음)
-    //    ⚠️ data-ignore-text 제거 → 텍스트도 순서대로 렌더됨
     const scriptAttrs = [
       `src="${API_BASE}/widget.js"`,
       hasAnyAutoplay ? `data-autoplay-all="1"` : '',
@@ -339,7 +434,6 @@ export default function EventDetail() {
       `data-api-base="${API_BASE}"`,
       `data-tab-count="${(classification.tabs || []).length}"`,
       `data-active-color="${classification.activeColor || '#1890ff'}"`,
-      // `data-render-text="1"` // 명시하고 싶다면 주석 해제
       couponAttr
     ].filter(Boolean).join(' ');
 
@@ -384,10 +478,10 @@ export default function EventDetail() {
               const yid = block.youtubeId || parseYouTubeId(block.src);
               return (
                 <div key={block.id} style={{ width:'100%' }}>
-                  <YouTubeEmbed
-                    id={yid}
-                    ratioW={block.ratio?.w || 16}
-                    ratioH={block.ratio?.h || 9}
+                  <YouTubeAuto
+                    videoId={yid}
+                    aspectW={block.ratio?.w || 16}
+                    aspectH={block.ratio?.h || 9}
                     autoplay={!!block.autoplay}
                     loop={!!block.loop}
                     title={`youtube-${yid || 'preview'}`}

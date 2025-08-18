@@ -42,7 +42,7 @@ const MALL_ID = 'yogibo';
 const API_HOST = 'https://port-0-ychat-lzgmwhc4d9883c97.sel4.cloudtype.app';
 const API_PREFIX = `${API_HOST}/api/${MALL_ID}`;
 
-// YouTube id 파서
+// YouTube id 파서 (기존)
 function getYouTubeId(input) {
   if (!input) return null;
   if (/^[\w-]{11}$/.test(input)) return input;
@@ -58,27 +58,163 @@ function getYouTubeId(input) {
   } catch (_) {}
   return null;
 }
-// ⬇️ NEW: autoplay/loop 여부에 따라 쿼리스트링 구성
+
+// buildYouTubeSrc: iframe fallback URL 생성 (남겨둠)
 const buildYouTubeSrc = (id, autoplay = false, loop = false) => {
   const params = new URLSearchParams({
     autoplay: autoplay ? '1' : '0',
-    mute: autoplay ? '1' : '0', // 모바일 자동재생 위해 mute 권장
+    mute: autoplay ? '1' : '0',
     playsinline: '1',
-    rel: '0',
-    modestbranding: '1',
+    rel: 0,
+    modestbranding: 1,
+    enablejsapi: 1,
   });
   if (loop) {
-    // YouTube requires playlist param equal to the video id for loop to work
     params.set('loop', '1');
     params.set('playlist', id);
   }
   return `https://www.youtube.com/embed/${id}?${params.toString()}`;
 };
 
-// <br/>용 이스케이프
-const escapeHtml = (s = '') =>
-  String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// ----------------------
+// YouTubeAuto 컴포넌트 (IFrame API 사용 — autoplay 시도, 실패하면 오버레이)
+// ----------------------
+function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, aspectH = 9 }) {
+  const containerRef = useRef(null);
+  const playerRef = useRef(null);
+  const [needsInteraction, setNeedsInteraction] = useState(false);
 
+  useEffect(() => {
+    if (!videoId) return;
+    let mounted = true;
+
+    // onReady handler 정의
+    const onAPIReady = () => {
+      if (!mounted) return;
+      // destroy 기존 플레이어 있으면 정리
+      try {
+        if (playerRef.current && playerRef.current.destroy) {
+          playerRef.current.destroy();
+        }
+      } catch (e) {}
+
+      playerRef.current = new window.YT.Player(containerRef.current, {
+        videoId,
+        width: '100%',
+        height: '100%',
+        playerVars: {
+          autoplay: autoplay ? 1 : 0,
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          enablejsapi: 1,
+          loop: loop ? 1 : 0,
+          playlist: loop ? videoId : undefined,
+        },
+        events: {
+          onReady: (e) => {
+            if (!mounted) return;
+            try {
+              // autoplay 시도: mute -> play
+              if (autoplay) {
+                e.target.mute?.();
+                const playPromise = e.target.playVideo?.();
+                // play가 거부될 수 있으므로 타이머로 상태 체크
+                setTimeout(() => {
+                  try {
+                    const state = e.target.getPlayerState?.();
+                    if (typeof state === 'number' && state !== 1) {
+                      setNeedsInteraction(true);
+                    }
+                  } catch (err) {
+                    setNeedsInteraction(true);
+                  }
+                }, 700);
+              }
+              // iframe allow 속성 추가 (안정성 위해)
+              try {
+                const iframe = playerRef.current.getIframe?.();
+                if (iframe) {
+                  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+                }
+              } catch (err) {}
+            } catch (err) {
+              setNeedsInteraction(true);
+            }
+          },
+          onError: () => {
+            if (mounted) setNeedsInteraction(true);
+          },
+        },
+      });
+    };
+
+    // 안전한 API 로드: 여러 인스턴스에서 충돌 없도록 큐 사용
+    if (window.YT && window.YT.Player) {
+      onAPIReady();
+    } else {
+      // 스크립트가 이미 추가되어 있는지 확인
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.body.appendChild(tag);
+      }
+      // 콜백 큐 초기화
+      if (!window._ytApiReadyQueue) {
+        window._ytApiReadyQueue = [];
+        const prev = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = function () {
+          if (typeof prev === 'function') prev();
+          window._ytApiReadyQueue.forEach(cb => {
+            try { cb(); } catch (_e) {}
+          });
+          window._ytApiReadyQueue = [];
+        };
+      }
+      window._ytApiReadyQueue.push(onAPIReady);
+    }
+
+    return () => {
+      mounted = false;
+      try {
+        playerRef.current?.destroy?.();
+      } catch (_) {}
+    };
+  }, [videoId, autoplay, loop]);
+
+  const requestPlayByUser = () => {
+    try {
+      if (playerRef.current) {
+        // 사용자 터치로 재생 시에는 언뮤트 후 플레이 (원하면 뮤트 유지)
+        try { playerRef.current.unMute?.(); } catch (_) {}
+        try { playerRef.current.playVideo?.(); } catch (_) {}
+        setNeedsInteraction(false);
+      } else {
+        setNeedsInteraction(true);
+      }
+    } catch (e) {
+      setNeedsInteraction(true);
+    }
+  };
+
+  return (
+    <div style={{ width: '100%', position: 'relative', aspectRatio: `${aspectW} / ${aspectH}` }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      {needsInteraction && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'linear-gradient(0deg, rgba(0,0,0,0.25), rgba(0,0,0,0.25))'
+        }}>
+          <button onClick={requestPlayByUser} style={{ padding: '10px 16px', fontSize: 16, borderRadius: 6 }}>
+            ▶ 재생
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// <------------------- 기존 EventCreate 컴포넌트 시작 ------------------->
 export default function EventCreate() {
   const navigate = useNavigate();
   const { id: _unused } = useParams();
@@ -795,15 +931,13 @@ export default function EventCreate() {
                   {blocks.map(b =>
                     b.type === 'video' ? (
                       <div key={b.id} style={{ width: '100%' }}>
-                        <div style={{ position: 'relative', width: '100%', aspectRatio: `${b.ratio?.w || 16} / ${b.ratio?.h || 9}` }}>
-                          <iframe
-                            src={buildYouTubeSrc(b.youtubeId, b.autoplay, b.loop)}
-                            title="YouTube"
-                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            allowFullScreen
-                          />
-                        </div>
+                        <YouTubeAuto
+                          videoId={b.youtubeId}
+                          autoplay={!!b.autoplay}
+                          loop={!!b.loop}
+                          aspectW={b.ratio?.w || 16}
+                          aspectH={b.ratio?.h || 9}
+                        />
                       </div>
                     ) : b.type === 'text' ? (
                       <div key={b.id} style={{ textAlign: b.style?.align || 'center', marginTop: b.style?.mt ?? 16, marginBottom: b.style?.mb ?? 16 }}>
@@ -875,15 +1009,13 @@ export default function EventCreate() {
 
                   {selectedBlock?.type === 'video' && (
                     <div style={{ maxWidth: 800, width: '100%', margin: '0 auto' }}>
-                      <div style={{ position: 'relative', width: '100%', aspectRatio: `${selectedBlock.ratio?.w || 16} / ${selectedBlock.ratio?.h || 9}` }}>
-                        <iframe
-                          src={buildYouTubeSrc(selectedBlock.youtubeId, selectedBlock.autoplay, selectedBlock.loop)}
-                          title="YouTube video"
-                          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          allowFullScreen
-                        />
-                      </div>
+                      <YouTubeAuto
+                        videoId={selectedBlock.youtubeId}
+                        autoplay={!!selectedBlock.autoplay}
+                        loop={!!selectedBlock.loop}
+                        aspectW={selectedBlock.ratio?.w || 16}
+                        aspectH={selectedBlock.ratio?.h || 9}
+                      />
 
                       {/* ✅ autoplay / loop 체크박스 (즉시 반영) */}
                       <div style={{ marginTop: 8 }}>
@@ -1154,15 +1286,13 @@ export default function EventCreate() {
               {blocks.map(b =>
                 b.type === 'video' ? (
                   <div key={b.id} style={{ width: '100%' }}>
-                    <div style={{ position: 'relative', width: '100%', aspectRatio: `${b.ratio?.w || 16} / ${b.ratio?.h || 9}` }}>
-                      <iframe
-                        src={buildYouTubeSrc(b.youtubeId, b.autoplay, b.loop)}
-                        title="YouTube preview"
-                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        allowFullScreen
-                      />
-                    </div>
+                    <YouTubeAuto
+                      videoId={b.youtubeId}
+                      autoplay={!!b.autoplay}
+                      loop={!!b.loop}
+                      aspectW={b.ratio?.w || 16}
+                      aspectH={b.ratio?.h || 9}
+                    />
                   </div>
                 ) : b.type === 'text' ? (
                   <div key={b.id} style={{ textAlign: b.style?.align || 'center', marginTop: b.style?.mt ?? 16, marginBottom: b.style?.mb ?? 16 }}>
@@ -1380,3 +1510,9 @@ export default function EventCreate() {
     </>
   );
 }
+
+// -------------------
+// HELPER: escapeHtml (안전한 텍스트 출력)
+// -------------------
+const escapeHtml = (s = '') =>
+  String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

@@ -24,7 +24,7 @@ export default function Sidebar({ collapsed, onToggle }) {
       <div className="sidebar-header">
         <span className="collapse-icon" onClick={onToggle}>
           {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-        </span>
+        </span>     
       </div>
 
       {/* ─── 메뉴 ─── d*/}
