@@ -202,7 +202,7 @@ export default function Dashboard() {
         }, { issued: 0, used: 0, unused: 0, autoDel: 0 });
         setCouponTotals(tot);
       })
-      .catch(() => message.error('데이터를 불러오지 못했습니다.'))
+      .catch(() => message.error(''))
       .finally(() => setLoading(false));
   };
 
