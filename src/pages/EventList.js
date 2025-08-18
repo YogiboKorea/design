@@ -83,6 +83,24 @@ export default function EventList() {
 
   const columns = [
     {
+      title: '생성 일자',
+      dataIndex: 'createdAt',
+      width: 120,
+      render: (text, record) => (
+        <span
+          onClick={() => navigate(`/event/detail/${record.id}`)}
+          style={{
+            fontSize: isMobile ? '12px' : '14px',
+            whiteSpace: 'nowrap',
+            cursor: 'pointer',
+            color: '#000'
+          }}
+        >
+          {text}
+        </span>
+      ),
+    },
+    {
       title: 'ID',
       dataIndex: 'id',
       width: 200,
@@ -141,24 +159,6 @@ export default function EventList() {
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
-            cursor: 'pointer',
-            color: '#000'
-          }}
-        >
-          {text}
-        </span>
-      ),
-    },
-    {
-      title: '생성 일자',
-      dataIndex: 'createdAt',
-      width: 120,
-      render: (text, record) => (
-        <span
-          onClick={() => navigate(`/event/detail/${record.id}`)}
-          style={{
-            fontSize: isMobile ? '12px' : '14px',
-            whiteSpace: 'nowrap',
             cursor: 'pointer',
             color: '#000'
           }}
