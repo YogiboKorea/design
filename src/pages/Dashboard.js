@@ -353,12 +353,12 @@ export default function Dashboard() {
             <Table
               size="small"
               columns={[
-                { title: '쿠폰번호',     dataIndex: 'couponNo',    key: 'couponNo' },
+                { title: '쿠폰명',     dataIndex: 'couponName',    key: 'couponName' },
                 { title: '다운로드 수',  dataIndex: 'issuedCount', key: 'issuedCount', align: 'right' },
                 { title: '주문 완료 수', dataIndex: 'usedCount',   key: 'usedCount',   align: 'right' }
               ]}
               dataSource={couponStats}
-              rowKey="couponNo"
+              rowKey="couponName"
               pagination={false}
               scroll={{ x: 'max-content' }}
             />

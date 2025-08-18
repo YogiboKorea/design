@@ -1412,6 +1412,7 @@ export default function EventEdit() {
 
               {layoutType === 'single' && (
                 <Button
+                 style={{marginTop:'10px;'}}
                   type={directProducts.length > 0 ? 'primary' : 'dashed'}
                   onClick={() => {
                     setInitialSelected(directProducts.map(p => p.product_no));
