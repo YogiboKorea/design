@@ -65,6 +65,45 @@ export default function Dashboard() {
 
   const [loading, setLoading] = useState(false);
 
+  // ─── helper: skin- 및 skin-mobile 접두사 제거 후 경로 정규화 ----
+  const normalizePath = (urlCandidate) => {
+    if (!urlCandidate) return '/';
+    // 절대 URL이면 그대로 반환
+    if (/^https?:\/\//i.test(urlCandidate)) return urlCandidate;
+
+    let s = String(urlCandidate).trim();
+
+    // 제거할 패턴들: skin-mobile/  또는  skin-<anything>/
+    const patterns = [/^skin-mobile\/?/i, /^skin-[^\/]+\/?/i];
+
+    // 반복해서 앞쪽에서 패턴을 제거
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const p of patterns) {
+        if (p.test(s)) {
+          s = s.replace(p, '');
+          changed = true;
+        }
+      }
+    }
+
+    // 결과가 비어있으면 루트로
+    if (!s) return '/';
+
+    // 앞에 슬래시 없으면 추가
+    if (!s.startsWith('/')) s = '/' + s;
+
+    return s;
+  };
+
+  // ---- helper: Select 라벨로 보여줄 친화적 문자열 생성 ----
+  const displayLabel = (u) => {
+    if (!u) return u;
+    if (/^https?:\/\//i.test(u)) return u;
+    return normalizePath(u);
+  };
+
   // ─── 이벤트 목록 & 쿠폰 개수 로드 ──────────────────────────────
   useEffect(() => {
     if (!mallId) return;
@@ -146,14 +185,20 @@ export default function Dashboard() {
 
   // ─── 데이터 조회 함수 (통합) ─────────────────────────────────
   const fetchData = () => {
-    if (!mallId || !selectedEvent || !selectedUrl) return;
+    if (!mallId || !selectedEvent || !selectedUrl) {
+      //message.warning('이벤트, 페이지, 날짜 범위를 확인해주세요.');
+      return;
+    }
     setLoading(true);
 
     const [s, e] = range.map(d => d.format('YYYY-MM-DD'));
+    // analytics API에 보낼 url 파라미터를 정규화된 값으로 사용
+    const normalizedSelected = normalizePath(selectedUrl);
+
     const params = {
       start_date: `${s}T00:00:00+09:00`,
       end_date:   `${e}T23:59:59.999+09:00`,
-      url:        selectedUrl
+      url:        normalizedSelected
     };
 
     const visReq   = api.get(`/api/${mallId}/analytics/${selectedEvent}/visitors-by-date`, { params });
@@ -202,7 +247,7 @@ export default function Dashboard() {
         }, { issued: 0, used: 0, unused: 0, autoDel: 0 });
         setCouponTotals(tot);
       })
-      //.catch(() => message.error('데이터를 불러오지 못했습니다.'))
+      .catch(() => message.error('데이터를 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
   };
 
@@ -248,7 +293,6 @@ export default function Dashboard() {
       name: '클릭수',
       type: 'bar',
       data: prodPerf.slice(0,5).map(o => o.clicks),
-      // ↓ 각 막대마다 색을 다르게
       itemStyle: {
         color: ({ dataIndex }) => {
           const colors = ['#fe6326', '#91CC75', '#FAC858', '#EE6666', '#73C0DE'];
@@ -259,26 +303,50 @@ export default function Dashboard() {
   };
 
   // ─── 이벤트 페이지 이동 기능 추가 ───────────────────────────────
-  // 기본 도메인 (요구하신 대로 하드코딩). 필요한 경우 환경변수로 변경하세요.
   const SITE_BASE = 'https://yogibo.kr';
 
   const openEventPage = () => {
-    // 선택된 URL 우선, 없으면 urls[0] (가장 최근 등록된 것으로 가정), 없으면 fallback 'test.html'
     const urlCandidate = selectedUrl || (urls && urls.length > 0 ? urls[0] : null) || 'test.html';
     let full = urlCandidate;
 
-    // if already absolute URL, open directly
-    if (!/^https?:\/\//i.test(urlCandidate)) {
-      // ensure it does not produce double slashes
-      if (urlCandidate.startsWith('/')) full = `${SITE_BASE}${urlCandidate}`;
-      else full = `${SITE_BASE}/${urlCandidate}`;
-    }
-
     try {
+      // 절대 URL이면 바로 열기
+      if (/^https?:\/\//i.test(urlCandidate)) {
+        full = urlCandidate;
+      } else {
+        const path = normalizePath(urlCandidate);
+        if (/^https?:\/\//i.test(path)) full = path;
+        else full = `${SITE_BASE}${path}`;
+      }
+
       window.open(full, '_blank');
       message.success(`이벤트 페이지로 이동: ${full}`);
     } catch (e) {
       message.error('새 창을 열 수 없습니다.');
+    }
+  };
+
+  // ─── 링크 복사 (정규화된 경로 / 또는 절대 URL) ───────────────────
+  const copyLink = async () => {
+    if (!selectedUrl && !(urls && urls.length)) {
+      message.warning('복사할 링크가 없습니다.');
+      return;
+    }
+    const urlCandidate = selectedUrl || (urls && urls.length > 0 ? urls[0] : null) || 'test.html';
+    let full = urlCandidate;
+    if (/^https?:\/\//i.test(urlCandidate)) {
+      full = urlCandidate;
+    } else {
+      const path = normalizePath(urlCandidate);
+      if (/^https?:\/\//i.test(path)) full = path;
+      else full = `${SITE_BASE}${path}`;
+    }
+
+    try {
+      await navigator.clipboard.writeText(full);
+      message.success(`복사되었습니다: ${full}`);
+    } catch (e) {
+      message.error('클립보드에 복사하지 못했습니다.');
     }
   };
 
@@ -300,7 +368,7 @@ export default function Dashboard() {
           <Col>
             <Select
               placeholder="페이지 선택"
-              options={urls.map(u => ({ label: u, value: u }))}
+              options={urls.map(u => ({ label: displayLabel(u), value: u }))}
               value={selectedUrl}
               onChange={setSelectedUrl}
               style={{ width: 240 }}
@@ -318,6 +386,9 @@ export default function Dashboard() {
 
           {/* 이 버튼은 이제 선택된(또는 가장 최근) URL로 새 탭을 엽니다 */}
           <Col><Button type="primary" onClick={openEventPage}>이벤트 페이지 이동</Button></Col>
+
+          {/* 링크 복사 버튼 */}
+          <Col><Button onClick={copyLink}>링크 복사</Button></Col>
 
           <Col flex="auto" />
           <Col className="kpi-col"><Statistic title="전체 이벤트 수" value={eventCount} suffix="개" valueStyle={{ fontSize: 18 }}  style={{textAlign:'center'}}/></Col>
