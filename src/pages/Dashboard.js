@@ -39,8 +39,8 @@ export default function Dashboard() {
   // ─── 상태 선언 ───────────────────────────────────────────────
   const [events, setEvents]               = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [urls, setUrls]                   = useState([]);
-  const [selectedUrl, setSelectedUrl]     = useState(null);
+  const [urls, setUrls]                   = useState([]); // 원본 URL 배열(서버 반환)
+  const [selectedUrl, setSelectedUrl]     = useState(null); // 정규화된 값(예: '/test1.html' 또는 'https://...')
 
   const [range, setRange]     = useState([dayjs().subtract(6, 'day'), dayjs()]);
   const [minDate, setMinDate] = useState(null);
@@ -65,7 +65,7 @@ export default function Dashboard() {
 
   const [loading, setLoading] = useState(false);
 
-  // ─── helper: 선행 '/', 숫자-segment, skin-mobile, skin-<anything> 반복 제거 후 정규화 ----
+  // ─── helper: 선행 '/', 숫자-segment, skin-mobile, skin-<anything> 반복 제거 후 경로 정규화 ----
   const normalizePath = (urlCandidate) => {
     if (!urlCandidate) return '/';
     // 절대 URL이면 그대로 반환 (http(s) 포함)
@@ -80,7 +80,7 @@ export default function Dashboard() {
 
     // 3) patterns to strip from the *start* repeatedly:
     //    - skin-mobile/
-    //    - skin-<any>/
+    //    - skin-<any>/    (covers skin-skin98 etc)
     //    - numeric segment like "67/" or "123/"
     const patterns = [
       /^skin-mobile\/?/i,
@@ -131,7 +131,7 @@ export default function Dashboard() {
       .catch(() => {});
   }, [mallId]);
 
-  // ─── selectedEvent 변경 시: URL 목록 + 쿠폰 목록 + 날짜날짜 초기화 ───────
+  // ─── selectedEvent 변경 시: URL 목록 + 쿠폰 목록 + 날짜 초기화 ───────
   useEffect(() => {
     setCouponStats([]);
     setCouponTotals({ issued:0, used:0, unused:0, autoDel:0 });
@@ -153,7 +153,14 @@ export default function Dashboard() {
       .then(res => {
         const list = res.data || [];
         setUrls(list);
-        setSelectedUrl(list[0] || null);
+
+        // 기본 선택: 정규화된 첫 항목으로 설정 (중복 제거 이후 첫 항목)
+        if (list.length) {
+          const firstNormalized = normalizePath(list[0]);
+          setSelectedUrl(firstNormalized);
+        } else {
+          setSelectedUrl(null);
+        }
       })
       .catch(() => message.error('URL 목록을 불러오지 못했습니다.'));
 
@@ -196,13 +203,14 @@ export default function Dashboard() {
   // ─── 데이터 조회 함수 (통합) ─────────────────────────────────
   const fetchData = () => {
     if (!mallId || !selectedEvent || !selectedUrl) {
-      //message.warning('이벤트, 페이지, 날짜 범위를 확인해주세요.');
+      // 만약 선택값이 없으면 동작하지 않음
       return;
     }
     setLoading(true);
 
     const [s, e] = range.map(d => d.format('YYYY-MM-DD'));
-    const normalizedSelected = normalizePath(selectedUrl);
+    // selectedUrl은 정규화된 값(또는 절대 URL)으로 저장되므로 그대로 사용해도 안전
+    const normalizedSelected = /^https?:\/\//i.test(selectedUrl) ? selectedUrl : normalizePath(selectedUrl);
 
     const params = {
       start_date: `${s}T00:00:00+09:00`,
@@ -315,17 +323,17 @@ export default function Dashboard() {
   const SITE_BASE = 'https://yogibo.kr';
 
   const openEventPage = () => {
-    const urlCandidate = selectedUrl || (urls && urls.length > 0 ? urls[0] : null) || 'test.html';
+    // selectedUrl은 정규화된 값(또는 절대 URL)으로 저장되어 있음
+    const urlCandidate = selectedUrl || (urls && urls.length > 0 ? normalizePath(urls[0]) : 'test.html');
     let full = urlCandidate;
 
     try {
-      // 절대 URL이면 바로 열기
       if (/^https?:\/\//i.test(urlCandidate)) {
         full = urlCandidate;
       } else {
-        const path = normalizePath(urlCandidate);
-        if (/^https?:\/\//i.test(path)) full = path;
-        else full = `${SITE_BASE}${path}`;
+        // 이미 정규화된 경로이면 바로 붙이고, 아니라면 정규화
+        const path = urlCandidate.startsWith('/') ? urlCandidate : normalizePath(urlCandidate);
+        full = `${SITE_BASE}${path}`;
       }
 
       window.open(full, '_blank');
@@ -341,14 +349,13 @@ export default function Dashboard() {
       message.warning('복사할 링크가 없습니다.');
       return;
     }
-    const urlCandidate = selectedUrl || (urls && urls.length > 0 ? urls[0] : null) || 'test.html';
+    const urlCandidate = selectedUrl || (urls && urls.length > 0 ? normalizePath(urls[0]) : 'test.html');
     let full = urlCandidate;
     if (/^https?:\/\//i.test(urlCandidate)) {
       full = urlCandidate;
     } else {
-      const path = normalizePath(urlCandidate);
-      if (/^https?:\/\//i.test(path)) full = path;
-      else full = `${SITE_BASE}${path}`;
+      const path = urlCandidate.startsWith('/') ? urlCandidate : normalizePath(urlCandidate);
+      full = `${SITE_BASE}${path}`;
     }
 
     try {
@@ -360,6 +367,15 @@ export default function Dashboard() {
   };
 
   // ─── 렌더링 ───────────────────────────────────────────────────
+  // 1) urls -> 정규화 후 중복 제거된 옵션 생성
+  const normalizedMap = new Map();
+  urls.forEach(u => {
+    const n = normalizePath(u);
+    if (!normalizedMap.has(n)) normalizedMap.set(n, { label: n, value: n, originals: [u] });
+    else normalizedMap.get(n).originals.push(u);
+  });
+  const urlOptions = Array.from(normalizedMap.values()).map(o => ({ label: o.label, value: o.value }));
+
   return (
     <Space direction="vertical" style={{ width: '100%', padding: 24, gap: 24 }} className="dashbord">
       {/* 컨트롤 + KPI 섹션 */}
@@ -377,7 +393,7 @@ export default function Dashboard() {
           <Col>
             <Select
               placeholder="페이지 선택"
-              options={urls.map(u => ({ label: displayLabel(u), value: u }))}
+              options={urlOptions}
               value={selectedUrl}
               onChange={setSelectedUrl}
               style={{ width: 240 }}
