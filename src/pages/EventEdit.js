@@ -601,8 +601,89 @@ export default function EventEdit() {
     setTextModalOpen(false);
   };
 
-  // 저장 (수정: classification을 명확히 구성)
+  // ========================================
+  // Validation helper used by step change & save
+  // ========================================
+  const validateProductSettings = () => {
+    // registerMode: 'category' | 'direct' | 'none'
+    if (registerMode === 'category') {
+      if (!gridSize) {
+        message.warning('그리드 사이즈를 선택해주세요.');
+        return false;
+      }
+      if (!layoutType) {
+        message.warning('상품 노출 방식을 선택해주세요.');
+        return false;
+      }
+      if (layoutType === 'single') {
+        if (!singleRoot) {
+          message.warning('상품 분류(대분류)를 선택하세요.');
+          return false;
+        }
+      } else if (layoutType === 'tabs') {
+        if (!Array.isArray(tabs) || tabs.length < 2) {
+          message.warning('탭을 두 개 이상 설정하세요.');
+          return false;
+        }
+        // 탭 중 적어도 하나에 카테고리(root/sub) 설정 필요
+        const hasTabWithCate = tabs.some(t => Boolean(t && (t.root || t.sub)));
+        if (!hasTabWithCate) {
+          message.warning('적어도 하나의 탭에 카테고리를 설정하세요.');
+          return false;
+        }
+      }
+    } else if (registerMode === 'direct') {
+      if (!gridSize) {
+        message.warning('그리드 사이즈를 선택해주세요.');
+        return false;
+      }
+      if (!layoutType) {
+        message.warning('상품 노출 방식을 선택해주세요.');
+        return false;
+      }
+      if (layoutType === 'single') {
+        if (!Array.isArray(directProducts) || directProducts.length === 0) {
+          message.warning('상품이 추가되지 않았습니다. 상품을 추가해주세요.');
+          return false;
+        }
+      } else if (layoutType === 'tabs') {
+        // 탭별 directProducts 중 적어도 한 탭에 상품이 있어야 함
+        const tabDirect = tabDirectProducts || {};
+        const hasAnyTabProduct = Object.values(tabDirect).some(arr => Array.isArray(arr) && arr.length > 0);
+        if (!hasAnyTabProduct) {
+          message.warning('탭에 추가된 상품이 없습니다. 상품을 추가해주세요.');
+          return false;
+        }
+      }
+    } else if (registerMode === 'none') {
+      // 허용
+    }
+    return true;
+  };
+
+  // Steps onChange handler with validation when moving to product step
+  const handleStepChange = (next) => {
+    // if user wants to move to product settings (step index 2), validate
+    if (next === 2) {
+      // validate media presence
+      if (!blocks || blocks.length === 0) {
+        message.warning('이미지를 추가하세요.');
+        return;
+      }
+      // validate product settings (so user doesn't jump to product step with invalid config)
+      const ok = validateProductSettings();
+      if (!ok) return;
+    }
+    setCurrent(next);
+  };
+
+  // 저장 (수정: classification을 명확히 구성) — 저장 전에 validation 수행
   const handleSave = async () => {
+    // Validate before saving
+    if (!validateProductSettings()) {
+      return;
+    }
+
     try {
       // 이미지 블록만 업로드
       const uploaded = await Promise.all(
@@ -736,7 +817,7 @@ export default function EventEdit() {
       }
       style={{ minHeight: '80vh' }}
     >
-      <Steps current={current} onChange={setCurrent} style={{ marginBottom: 24 }}>
+      <Steps current={current} onChange={handleStepChange} style={{ marginBottom: 24 }}>
         <Step title="제목 입력" />
         <Step title="미디어(이미지/영상/텍스트) & 매핑" />
         <Step title="상품등록 방식 설정" />

@@ -1,5 +1,4 @@
 // src/pages/EventDetail.jsx
-
 import React, { useEffect, useState, useRef } from 'react';
 import {
   Card,
@@ -8,7 +7,6 @@ import {
   message,
   Modal,
   Input,
-  Alert,
 } from 'antd';
 import {
   UnorderedListOutlined,
@@ -24,9 +22,6 @@ const API_BASE =
   process.env.REACT_APP_API_BASE_URL ||
   'https://port-0-ychat-lzgmwhc4d9883c97.sel4.cloudtype.app';
 
-// -----------------------------
-// YouTubeAuto: IFrame API 기반 재생 시도 컴포넌트
-// -----------------------------
 function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, aspectH = 9, title = 'YouTube video' }) {
   const containerRef = useRef(null);
   const playerRef = useRef(null);
@@ -43,7 +38,6 @@ function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, as
       }
 
       try {
-        // destroy 이전 인스턴스
         if (playerRef.current && playerRef.current.destroy) playerRef.current.destroy();
       } catch (e) {}
 
@@ -59,17 +53,14 @@ function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, as
           enablejsapi: 1,
           loop: loop ? 1 : 0,
           playlist: loop ? videoId : undefined,
-          // origin: window.location.origin // 필요시 활성화
         },
         events: {
           onReady: (e) => {
             if (!mounted) return;
             try {
               if (autoplay) {
-                // iOS/브라우저 정책 대응: mute -> play 시도
                 e.target.mute?.();
                 const p = e.target.playVideo?.();
-                // play가 거부 당할 수 있으므로 일정 시간 후 상태 확인
                 setTimeout(() => {
                   try {
                     const state = e.target.getPlayerState?.();
@@ -81,7 +72,6 @@ function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, as
                   }
                 }, 600);
               }
-              // iframe allow 속성 보장
               try {
                 const iframe = playerRef.current.getIframe?.();
                 if (iframe) iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
@@ -97,7 +87,6 @@ function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, as
       });
     };
 
-    // 로드 로직: API가 있으면 바로, 없으면 스크립트 추가 + 콜백 큐
     if (window.YT && window.YT.Player) {
       createPlayer();
     } else {
@@ -127,7 +116,6 @@ function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, as
   const requestPlayByUser = () => {
     try {
       if (playerRef.current) {
-        // 사용자 터치로 재생 시 언뮤트/플레이 처리 (원하면 그냥 play만)
         try { playerRef.current.unMute?.(); } catch (_) {}
         try { playerRef.current.playVideo?.(); } catch (_) {}
         setNeedsInteraction(false);
@@ -156,9 +144,6 @@ function YouTubeAuto({ videoId, autoplay = false, loop = false, aspectW = 16, as
   );
 }
 
-// -----------------------------
-// 기존 EventDetail 컴포넌트
-// -----------------------------
 export default function EventDetail() {
   const params        = new URLSearchParams(window.location.search);
   const paramMallId   = params.get('mall_id') || params.get('state');
@@ -173,14 +158,12 @@ export default function EventDetail() {
   const [activeTab, setActiveTab] = useState('0');
   const [messageApi, contextHolder] = message.useMessage();
 
-  // ── helper: escape for text -> <br/>
   const escapeHtml = (s = '') =>
     String(s)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-  // ── YouTube ID 파서 (URL/ID/iframe src 모두 대응)
   function parseYouTubeId(input) {
     if (!input) return null;
     if (/^[\w-]{11}$/.test(input)) return input;
@@ -199,7 +182,6 @@ export default function EventDetail() {
     return null;
   }
 
-  // YouTube src 빌더 (autoplay, mute, loop(playlist) 포함) — enablejsapi 추가
   function buildYouTubeSrc(id, autoplay = false, loop = false) {
     const params = new URLSearchParams({
       autoplay: autoplay ? '1' : '0',
@@ -216,13 +198,11 @@ export default function EventDetail() {
     return `https://www.youtube.com/embed/${id}?${params.toString()}`;
   }
 
-  // 1) 이벤트 데이터 로드 (+ blocks 정규화)
   useEffect(() => {
     axios.get(`${API_BASE}/api/${mallId}/eventTemple/${id}`)
       .then(res => {
         const ev = res.data;
 
-        // images/regions id 매핑 (하위호환)
         ev.images = (ev.images || []).map(img => ({
           ...img,
           id: img._id || img.id,
@@ -232,7 +212,6 @@ export default function EventDetail() {
           })),
         }));
 
-        // content.blocks가 있으면 우선 사용, 없으면 images → image blocks로 변환
         const rawBlocks = Array.isArray(ev?.content?.blocks)
           ? ev.content.blocks
           : (ev.images || []).map(img => ({
@@ -242,7 +221,6 @@ export default function EventDetail() {
               regions: img.regions || []
             }));
 
-        // 블록 정규화 (image / video / text)
         ev.blocks = rawBlocks.map(b => {
           const base = {
             id: b._id || b.id,
@@ -261,10 +239,9 @@ export default function EventDetail() {
             return {
               ...base,
               text: b.text || '',
-              style: b.style || {}, // {align,fontSize,fontWeight,color,mt,mb}
+              style: b.style || {},
             };
           }
-          // image
           return {
             ...base,
             src: b.src,
@@ -298,7 +275,31 @@ export default function EventDetail() {
   const singleRoot     = classification.root;
   const singleSub      = classification.sub;
 
-  // 자리표시 그리드
+  // ---------- NEW: decide whether to show product widget at all ----------
+  const showProductWidget = (() => {
+    // 1) if registerMode explicitly 'none' => don't show
+    if (classification.registerMode === 'none') return false;
+
+    // 2) for single layout: require at least category (root/sub) or direct products
+    if (layoutType === 'single') {
+      const cate = singleSub || singleRoot;
+      const hasDirect = Array.isArray(directProducts) && directProducts.length > 0;
+      return Boolean(cate) || hasDirect;
+    }
+
+    // 3) for tabs layout: at least one tab with category (root/sub) or direct products
+    if (layoutType === 'tabs') {
+      const hasTabCate = Array.isArray(tabs) && tabs.some(t => Boolean(t && (t.sub || t.root)));
+      const tabDirect = classification.tabDirectProducts || {};
+      const hasTabDirect = Object.values(tabDirect).some(arr => Array.isArray(arr) && arr.length > 0);
+      return hasTabCate || hasTabDirect;
+    }
+
+    // default: don't show
+    return false;
+  })();
+  // -----------------------------------------------------------------------
+
   const renderGrid = cols => (
     <div style={{
       display: 'grid',
@@ -323,15 +324,21 @@ export default function EventDetail() {
     </div>
   );
 
-  // 쿠폰 다운로드
   const downloadCoupon = couponNo => {
     const couponUrl = `/exec/front/newcoupon/IssueDownload?coupon_no=${couponNo}`;
     window.location.href = couponUrl +
       `&opener_url=${encodeURIComponent(window.location.href)}`;
   };
 
-  // HTML 생성 & 모달 열기 (기존 로직 유지 — data-autoplay-all 등 이미 포함)
+  // ---------- handleShowHtml (kept from previous safe implementation) ----------
   const handleShowHtml = () => {
+    const attrIf = (name, val) => {
+      if (val === undefined || val === null) return '';
+      const s = String(val);
+      if (s === '' || s === 'undefined' || s === 'null') return '';
+      return ` ${name}="${s.replace(/"/g, '&quot;')}"`;
+    };
+
     let html = `<!--@layout(/layout/basic/layout.html)-->\n\n`;
 
     const allBlocks = (event.blocks && event.blocks.length
@@ -363,7 +370,6 @@ export default function EventDetail() {
           style: b.style || {}
         };
       }
-      // image
       return {
         id: b.id || b._id,
         type: 'image',
@@ -385,14 +391,13 @@ export default function EventDetail() {
           .filter(r => r.coupon)
           .map(r => r.coupon))
     ));
-    const couponAttr = couponList.length
-      ? ` data-coupon-nos="${couponList.join(',')}"`
-      : '';
+    const couponAttr = couponList.length ? ` data-coupon-nos="${couponList.join(',')}"` : '';
 
     if (layoutType === 'tabs') {
       html += `<div class="tabs_${id}">\n`;
       (classification.tabs || []).forEach((t, i) => {
-        html += `  <button class="${i === 0 ? 'active' : ''}" onclick="showTab('tab-${i}',this)">${t.title || `탭${i+1}`}</button>\n`;
+        const titleText = t.title || `탭${i+1}`;
+        html += `  <button class="${i === 0 ? 'active' : ''}" onclick="showTab('tab-${i}',this)">${titleText}</button>\n`;
       });
       html += `</div>\n\n`;
 
@@ -404,10 +409,18 @@ export default function EventDetail() {
           .map(p => (typeof p === 'object' ? p.product_no : p))
           .filter(Boolean)
           .join(',');
-        const directAttrForTab = tabIds ? ` data-direct-nos="${tabIds}"` : '';
 
+        if (!cate && !tabIds) {
+          html += `<div id="tab-${i}" class="tab-content_${id}" style="display:${disp}">\n`;
+          html += `  <!-- no category or direct product configured for this tab -->\n`;
+          html += `</div>\n\n`;
+          return;
+        }
+
+        const cateAttr = attrIf('data-cate', cate);
+        const directAttrForTab = tabIds ? ` data-direct-nos="${tabIds}"` : '';
         html += `<div id="tab-${i}" class="tab-content_${id}" style="display:${disp}">\n`;
-        html += `  <ul class="main_Grid_${id}" data-cate="${cate}" data-grid-size="${gridSize}"${directAttrForTab}></ul>\n`;
+        html += `  <ul class="main_Grid_${id}"${cateAttr} data-grid-size="${gridSize}"${directAttrForTab}></ul>\n`;
         html += `</div>\n\n`;
       });
 
@@ -417,12 +430,18 @@ export default function EventDetail() {
         .map(p => (typeof p === 'object' ? p.product_no : p))
         .filter(Boolean)
         .join(',');
-      const directAttrForSingle = singleIds ? ` data-direct-nos="${singleIds}"` : '';
 
-      html += `<div class="product_list_widget">\n`;
-      html += `  <ul class="main_Grid_${id}" data-cate="${cate}" data-grid-size="${gridSize}"${directAttrForSingle}></ul>\n`;
-      html += `</div>\n\n`;
+      if (!cate && !singleIds) {
+        html += `<!-- no category or direct products configured for single layout -->\n\n`;
+      } else {
+        const cateAttr = attrIf('data-cate', cate);
+        const directAttrForSingle = singleIds ? ` data-direct-nos="${singleIds}"` : '';
+        html += `<div class="product_list_widget">\n`;
+        html += `  <ul class="main_Grid_${id}"${cateAttr} data-grid-size="${gridSize}"${directAttrForSingle}></ul>\n`;
+        html += `</div>\n\n`;
+      }
     }
+
     const hasAnyAutoplay = allBlocks.some(b => b.type === 'video' && Boolean(b.autoplay));
     const hasAnyLoop = allBlocks.some(b => b.type === 'video' && Boolean(b.loop));
     const scriptAttrs = [
@@ -442,8 +461,8 @@ export default function EventDetail() {
     setHtmlCode(html);
     setHtmlModalVisible(true);
   };
+  // -----------------------------------------------------------------------
 
-  // HTML 복사
   const handleCopy = async () => {
     await navigator.clipboard.writeText(htmlCode);
     message.success('코드 복사 완료');
@@ -471,7 +490,7 @@ export default function EventDetail() {
         }
       >
 
-        {/* 1) 블록(이미지/영상/텍스트) 렌더링 (관리자 상세 화면용 미리보기) */}
+        {/* 1) 블록(이미지/영상/텍스트) 렌더링 */}
         <div style={{ display:'grid', gap:0, maxWidth:800, margin:'0 auto' }}>
           {(event.blocks || []).map((block, idx) => {
             if (block.type === 'video') {
@@ -513,7 +532,6 @@ export default function EventDetail() {
                 </div>
               );
             }
-            // 이미지 + 영역
             return (
               <div key={block.id} style={{ position:'relative', width:'100%', fontSize:0, margin:'0 auto' }}>
                 <img src={block.src} alt={`img-${idx}`} style={{ width:'100%' }} draggable={false} />
@@ -557,14 +575,15 @@ export default function EventDetail() {
           })}
         </div>
 
-        {/* 2) 상품 그리드 (자리표시) */}
-        {layoutType === 'none' && (
-          <p style={{ textAlign:'center', marginTop:24 }}>
-            {/* 상품을 노출하지 않습니다. */}
-          </p>
+        {/* 2) 상품 그리드 — 이제 showProductWidget이 true일 때만 노출 */}
+        { !showProductWidget && (
+          // 숨기고 싶은 영역이 완전히 사라지도록 아무것도 렌더하지 않음
+          null
         )}
-        {layoutType === 'single' && renderGrid(gridSize)}
-        {layoutType === 'tabs' && (
+
+        { showProductWidget && layoutType === 'single' && renderGrid(gridSize) }
+
+        { showProductWidget && layoutType === 'tabs' && (
           <>
             <div style={{
               display:'grid', gap:8,
@@ -589,13 +608,12 @@ export default function EventDetail() {
                 </button>
               ))}
             </div>
-            {renderGrid(gridSize)}
+            { renderGrid(gridSize) }
           </>
         )}
 
       </Card>
 
-      {/* HTML 모달 */}
       <Modal
         title="전체 HTML 코드"
         open={htmlModalVisible}

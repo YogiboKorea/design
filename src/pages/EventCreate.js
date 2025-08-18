@@ -246,29 +246,124 @@ export default function EventCreate() {
   useEffect(() => {
     if (current === 0) setTimeout(() => titleRef.current?.focus(), 0);
   }, [current]);
+
+  // ---- REPLACED next() with stronger validation (see below) ----
   const next = () => {
     if (current === 0) {
       if (!title.trim()) setTitle('제목없음');
       setCurrent(1);
-    } else if (current === 1 && blocks.length === 0) {
-      msgApi.warning('이미지를 추가하세요.');
-    } else if (current === 2) {
-      if (!registerMode) msgApi.warning('상품 등록 방식을 선택하세요.');
-      else if (registerMode === 'category') {
-        if (!gridSize) msgApi.warning('그리드 사이즈를 선택해주세요.');
-        else if (!layoutType) msgApi.warning('상품 노출 방식을 선택해주세요.');
-        else if (layoutType === 'single' && !singleRoot)
-          msgApi.warning('상품 분류(대분류)를 선택하세요.');
-        else if (layoutType === 'tabs' && tabs.length < 2)
-          msgApi.warning('탭을 두 개 이상 설정하세요.');
-        else setCurrent(3);
-      } else {
-        setCurrent(3);
+      return;
+    }
+
+    if (current === 1) {
+      if (blocks.length === 0) {
+        msgApi.warning('이미지를 추가하세요.');
+        return;
       }
-    } else {
-      setCurrent(c => c + 1);
+      setCurrent(2);
+      return;
+    }
+
+    if (current === 2) {
+      // 기본 체크
+      if (!registerMode) {
+        msgApi.warning('상품 등록 방식을 선택하세요.');
+        return;
+      }
+
+      // ====== category 모드 ======
+      if (registerMode === 'category') {
+        if (!gridSize) {
+          msgApi.warning('그리드 사이즈를 선택해주세요.');
+          return;
+        }
+        if (!layoutType) {
+          msgApi.warning('상품 노출 방식을 선택해주세요.');
+          return;
+        }
+
+        if (layoutType === 'single') {
+          // single: 반드시 대분류가 있어야 함
+          if (!singleRoot) {
+            msgApi.warning('상품 분류(대분류)를 선택하세요.');
+            return;
+          }
+          setCurrent(3);
+          return;
+        }
+
+        if (layoutType === 'tabs') {
+          // 탭 수 체크
+          if (tabs.length < 2) {
+            msgApi.warning('탭을 두 개 이상 설정하세요.');
+            return;
+          }
+          // 탭들 중 적어도 하나에 카테고리(root 또는 sub)가 설정되어 있어야 함
+          const hasTabWithCate = tabs.some(t => Boolean(t && (t.root || t.sub)));
+          if (!hasTabWithCate) {
+            msgApi.warning('적어도 하나의 탭에 카테고리를 설정하세요.');
+            return;
+          }
+          setCurrent(3);
+          return;
+        }
+
+        // 기본 통과
+        setCurrent(3);
+        return;
+      }
+
+      // ====== direct 모드 ======
+      if (registerMode === 'direct') {
+        if (!gridSize) {
+          msgApi.warning('그리드 사이즈를 선택해주세요.');
+          return;
+        }
+        if (!layoutType) {
+          msgApi.warning('상품 노출 방식을 선택해주세요.');
+          return;
+        }
+
+        if (layoutType === 'single') {
+          // single: 반드시 직접 등록한 상품이 있어야 함
+          if (!Array.isArray(directProducts) || directProducts.length === 0) {
+            msgApi.warning('상품이 추가되지 않았습니다. 상품을 추가해주세요.');
+            return;
+          }
+          setCurrent(3);
+          return;
+        }
+
+        if (layoutType === 'tabs') {
+          // tabs: 탭별 directProducts 중 적어도 한 탭에 상품이 있어야 함
+          const tabDirect = tabDirectProducts || {};
+          const hasAnyTabProduct = Object.values(tabDirect).some(arr => Array.isArray(arr) && arr.length > 0);
+          if (!hasAnyTabProduct) {
+            msgApi.warning('탭에 추가된 상품이 없습니다. 상품을 추가해주세요.');
+            return;
+          }
+          setCurrent(3);
+          return;
+        }
+
+        // 기본 통과
+        setCurrent(3);
+        return;
+      }
+
+      // ====== none 모드 (노출안함) ======
+      if (registerMode === 'none') {
+        // 노출안함이면 바로 진행
+        setCurrent(3);
+        return;
+      }
+
+      // fallback
+      setCurrent(3);
     }
   };
+  // ----------------------------------------------------------------
+
   const prev = () => setCurrent(c => c - 1);
 
   // 제목
@@ -1392,6 +1487,7 @@ export default function EventCreate() {
           )}
         </Form>
       </Modal>
+
       {/* YouTube 모달 */}
       <Modal
         open={videoModalVisible}
@@ -1442,6 +1538,7 @@ export default function EventCreate() {
           {/* loop 체크박이는 UI에서 제거 — autoplay일 때 loop 자동 적용 */}
         </Form>
       </Modal>
+
       {/* 텍스트 모달 */}
       <Modal
         open={textModalVisible}
