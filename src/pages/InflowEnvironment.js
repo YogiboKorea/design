@@ -43,8 +43,8 @@ export default function InflowEnvironment() {
   // ─── 상태 선언 ───────────────────────────────────────────────
   const [events, setEvents]               = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [urls, setUrls]                   = useState([]);
-  const [selectedUrl, setSelectedUrl]     = useState(null);
+  const [urls, setUrls]                   = useState([]); // 원본 URL 리스트 (서버 반환)
+  const [selectedUrl, setSelectedUrl]     = useState(null); // 정규화된 값(예: '/test1.html' 또는 절대 URL)
   const [range, setRange]                 = useState([dayjs().subtract(7, 'day'), dayjs()]);
   const [minDate, setMinDate]             = useState(null);
   const [pieData, setPieData]             = useState([]);
@@ -124,7 +124,20 @@ export default function InflowEnvironment() {
       .then(res => {
         const list = res.data || [];
         setUrls(list);
-        setSelectedUrl(list[0] || null);
+
+        // 기본 선택: 정규화된 첫 unique 항목으로 설정 (중복 제거 이후 첫 항목)
+        if (list.length) {
+          const normalizedMap = new Map();
+          for (const u of list) {
+            const n = normalizePath(u);
+            if (!normalizedMap.has(n)) normalizedMap.set(n, []);
+            normalizedMap.get(n).push(u);
+          }
+          const firstNorm = normalizedMap.keys().next().value;
+          setSelectedUrl(firstNorm || null);
+        } else {
+          setSelectedUrl(null);
+        }
       })
       .catch(() => {
         message.error('URL 목록을 불러오지 못했습니다.');
@@ -145,7 +158,8 @@ export default function InflowEnvironment() {
     setLoading(true);
 
     const [start, end] = range.map(d => d.format('YYYY-MM-DD'));
-    const normalizedSelected = normalizePath(selectedUrl);
+    // selectedUrl is stored as normalized value (or absolute URL)
+    const normalizedSelected = /^https?:\/\//i.test(selectedUrl) ? selectedUrl : normalizePath(selectedUrl);
 
     const params = {
       start_date: `${start}T00:00:00+09:00`,
@@ -244,6 +258,15 @@ export default function InflowEnvironment() {
   };
 
   // ─── 렌더링 ───────────────────────────────────────────────────
+  // 1) urls -> 정규화 후 중복 제거된 옵션 생성
+  const normalizedMap = new Map();
+  urls.forEach(u => {
+    const n = normalizePath(u);
+    if (!normalizedMap.has(n)) normalizedMap.set(n, { label: n, value: n, originals: [u] });
+    else normalizedMap.get(n).originals.push(u);
+  });
+  const urlOptions = Array.from(normalizedMap.values()).map(o => ({ label: o.label, value: o.value }));
+
   return (
     <Space direction="vertical" style={{ width: '100%' }} className="InflowEnvironment">
       <Card size={isMobile ? 'small' : 'default'}>
@@ -263,7 +286,7 @@ export default function InflowEnvironment() {
           />
           <Select
             placeholder="페이지 선택"
-            options={urls.map(u => ({ label: displayLabel(u), value: u }))}
+            options={urlOptions}
             value={selectedUrl}
             onChange={setSelectedUrl}
             style={{ width: isMobile ? '100%' : 240 }}

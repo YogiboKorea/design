@@ -28,7 +28,7 @@ export default function Participation() {
   const [events, setEvents]               = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [couponNos, setCouponNos]         = useState([]);
-  const [couponPaths, setCouponPaths]     = useState([]); // 경로형 쿠폰값(있다면) 정규화해서 보관
+  const [couponPaths, setCouponPaths]     = useState([]); // 정규화된 경로형 쿠폰값(있다면) 보관
   const [range, setRange]                 = useState([ dayjs().subtract(7, 'day'), dayjs() ]);
   const [minDate, setMinDate]             = useState(null);
   const [stats, setStats]                 = useState([]);
@@ -120,14 +120,14 @@ export default function Participation() {
                   all.push(c);
                   // 경로처럼 보이는 값이면 정규화해서 paths에 넣음 (예: 'skin-mobile67/test1.html' 등)
                   if (typeof c === 'string' && (c.includes('/') || /^skin-/i.test(c))) {
-                    paths.push(displayLabel(c));
+                    paths.push(normalizePath(c));
                   }
                 });
               } else {
                 const c = r.coupon;
                 all.push(c);
                 if (typeof c === 'string' && (c.includes('/') || /^skin-/i.test(c))) {
-                  paths.push(displayLabel(c));
+                  paths.push(normalizePath(c));
                 }
               }
             }

@@ -1,7 +1,7 @@
 // src/pages/PrdData.jsx
 
 import React, { useEffect, useState } from 'react';
-import { Card, Select, Button, Table, Space, message, Grid } from 'antd';
+import { Card, Select, Button, Table, Space, message, Grid, Tooltip } from 'antd';
 import dayjs from 'dayjs';
 import api from '../axios';
 import './NormalSection.css'
@@ -61,7 +61,15 @@ export default function PrdData() {
 
   const displayLabelForUrl = (u) => {
     if (!u) return u;
-    if (/^https?:\/\//i.test(u)) return u;
+    if (/^https?:\/\//i.test(u)) {
+      // for absolute URL, show pathname + search if possible, otherwise whole URL
+      try {
+        const parsed = new URL(u);
+        return parsed.pathname + (parsed.search || '');
+      } catch (e) {
+        return u;
+      }
+    }
     return normalizePath(u);
   };
 
@@ -99,28 +107,48 @@ export default function PrdData() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEvent, minDate]);
 
-  // copy helper: 복사 (절대 URL이면 그대로, 아니면 SITE_BASE + path)
+  // copy helper: 복사 (절대 URL이면 pathname+search만, 아니면 SITE_BASE + normalizedPath)
   const copyToClipboard = async (urlCandidate) => {
     if (!urlCandidate) {
       message.warning('복사할 링크가 없습니다.');
       return;
     }
-    const full = /^https?:\/\//i.test(urlCandidate) ? urlCandidate : `${SITE_BASE}${normalizePath(urlCandidate)}`;
+
+    let toCopy = '';
+
+    if (/^https?:\/\//i.test(urlCandidate)) {
+      try {
+        const parsed = new URL(urlCandidate);
+        toCopy = parsed.pathname + (parsed.search || '');
+      } catch (e) {
+        // 파싱 실패하면 전체 URL 복사 (fallback)
+        toCopy = urlCandidate;
+      }
+    } else {
+      // 비절대경로: 정규화된 경로만 복사
+      toCopy = normalizePath(urlCandidate);
+    }
+
     try {
-      await navigator.clipboard.writeText(full);
-      message.success(`복사되었습니다: ${full}`);
+      await navigator.clipboard.writeText(toCopy);
+      message.success(`복사되었습니다: ${toCopy}`);
     } catch (e) {
       message.error('클립보드에 복사하지 못했습니다.');
     }
   };
 
-  // open helper: 새 탭으로 열기
+  // open helper: 새 탭으로 열기 (원본 절대 URL 우선, 아니면 SITE_BASE + normalizedPath)
   const openInNewTab = (urlCandidate) => {
     if (!urlCandidate) {
       message.warning('열 링크가 없습니다.');
       return;
     }
-    const full = /^https?:\/\//i.test(urlCandidate) ? urlCandidate : `${SITE_BASE}${normalizePath(urlCandidate)}`;
+    let full = urlCandidate;
+    if (/^https?:\/\//i.test(urlCandidate)) {
+      full = urlCandidate;
+    } else {
+      full = `${SITE_BASE}${normalizePath(urlCandidate)}`;
+    }
     try {
       window.open(full, '_blank');
     } catch (e) {
@@ -229,11 +257,19 @@ export default function PrdData() {
             key: 'normalizedUrl',
             render: (val, record) => {
               if (!val) return '-';
-              // val might be absolute URL (starting with http) or path like '/test.html'
-              const display = /^https?:\/\//i.test(val) ? val : val;
+              const display = displayLabelForUrl(record._rawUrl || val);
+              const tooltipTitle = record._rawUrl && (record._rawUrl !== display) ? record._rawUrl : undefined;
               return (
                 <Space size="small" wrap>
-                  <span style={{ maxWidth: 200, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{display}</span>
+                  <Tooltip title={tooltipTitle}>
+                    <span style={{
+                      maxWidth: 200,
+                      display: 'inline-block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>{display}</span>
+                  </Tooltip>
                   <Button size="small" onClick={() => openInNewTab(record._rawUrl || val)}>열기</Button>
                   <Button size="small" onClick={() => copyToClipboard(record._rawUrl || val)}>복사</Button>
                 </Space>
