@@ -7,6 +7,7 @@ import api from '../axios';
 import './NormalSection.css'
 
 const { useBreakpoint } = Grid;
+const SITE_BASE = 'https://yogibo.kr';
 
 export default function PrdData() {
   const screens = useBreakpoint();
@@ -19,6 +20,50 @@ export default function PrdData() {
   const [minDate, setMinDate]             = useState(null);
   const [data, setData]                   = useState([]);
   const [loading, setLoading]             = useState(false);
+
+  // ─── helper: 선행 '/', 숫자-segment, skin-mobile, skin-<anything> 반복 제거 후 정규화 ----
+  const normalizePath = (urlCandidate) => {
+    if (!urlCandidate) return '/';
+    // 절대 URL이면 그대로 반환
+    if (/^https?:\/\//i.test(urlCandidate)) return urlCandidate;
+
+    let s = String(urlCandidate).trim();
+
+    // 1) remove leading slashes so patterns match consistently ("/67/test.html" -> "67/test.html")
+    s = s.replace(/^\/+/, '');
+    if (!s) return '/';
+
+    // 2) patterns to strip repeatedly from the start:
+    //    - skin-mobile/
+    //    - skin-<anything>/   (covers skin-skin98 etc)
+    //    - numeric segment like "67/" or "123/"
+    const patterns = [
+      /^skin-mobile\/?/i,
+      /^skin-[^\/]+\/?/i,
+      /^\d+\/?/
+    ];
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const p of patterns) {
+        if (p.test(s)) {
+          s = s.replace(p, '');
+          changed = true;
+        }
+      }
+    }
+
+    if (!s) return '/';
+    if (!s.startsWith('/')) s = '/' + s;
+    return s;
+  };
+
+  const displayLabelForUrl = (u) => {
+    if (!u) return u;
+    if (/^https?:\/\//i.test(u)) return u;
+    return normalizePath(u);
+  };
 
   // ─── 1) 이벤트 목록 로드 ─────────────────────────────────────
   useEffect(() => {
@@ -51,10 +96,44 @@ export default function PrdData() {
     if (selectedEvent && minDate) {
       fetchPerformance();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEvent, minDate]);
+
+  // copy helper: 복사 (절대 URL이면 그대로, 아니면 SITE_BASE + path)
+  const copyToClipboard = async (urlCandidate) => {
+    if (!urlCandidate) {
+      message.warning('복사할 링크가 없습니다.');
+      return;
+    }
+    const full = /^https?:\/\//i.test(urlCandidate) ? urlCandidate : `${SITE_BASE}${normalizePath(urlCandidate)}`;
+    try {
+      await navigator.clipboard.writeText(full);
+      message.success(`복사되었습니다: ${full}`);
+    } catch (e) {
+      message.error('클립보드에 복사하지 못했습니다.');
+    }
+  };
+
+  // open helper: 새 탭으로 열기
+  const openInNewTab = (urlCandidate) => {
+    if (!urlCandidate) {
+      message.warning('열 링크가 없습니다.');
+      return;
+    }
+    const full = /^https?:\/\//i.test(urlCandidate) ? urlCandidate : `${SITE_BASE}${normalizePath(urlCandidate)}`;
+    try {
+      window.open(full, '_blank');
+    } catch (e) {
+      message.error('새 창을 열 수 없습니다.');
+    }
+  };
 
   // ─── 3) 상품 클릭 퍼포먼스 조회 ───────────────────────────────────
   const fetchPerformance = async () => {
+    if (!mallId || !selectedEvent) {
+      message.warning('이벤트를 선택해주세요.');
+      return;
+    }
     setLoading(true);
     try {
       const start = minDate.format('YYYY-MM-DD');
@@ -70,8 +149,19 @@ export default function PrdData() {
         }
       );
 
+      // 방어적으로 productUrl/url/link 필드가 있으면 정규화해서 추가
+      const mapped = (perf || []).map(item => {
+        const rawUrl = item.productUrl || item.url || item.link || '';
+        const normalized = rawUrl ? normalizePath(rawUrl) : '';
+        return {
+          ...item,
+          _rawUrl: rawUrl,
+          normalizedUrl: normalized,
+        };
+      });
+
       // 클릭수 내림차순 정렬
-      const sorted = (perf || []).slice().sort((a, b) => b.clicks - a.clicks);
+      const sorted = mapped.slice().sort((a, b) => (b.clicks || 0) - (a.clicks || 0));
       setData(sorted);
     } catch (err) {
       console.error('[PRODUCT PERFORMANCE ERROR]', err);
@@ -133,10 +223,26 @@ export default function PrdData() {
           { title: '순위',       key: 'rank',      render: (_t, _r, i) => i + 1 },
           { title: '상품번호',   dataIndex: 'productNo',   key: 'productNo' },
           { title: '상품명',     dataIndex: 'productName', key: 'productName' },
-          { title: '클릭수',     dataIndex: 'clicks',      key: 'clicks', align: 'right',
-            sorter: (a, b) => a.clicks - b.clicks, defaultSortOrder: 'descend'
+          {
+            title: '링크',
+            dataIndex: 'normalizedUrl',
+            key: 'normalizedUrl',
+            render: (val, record) => {
+              if (!val) return '-';
+              // val might be absolute URL (starting with http) or path like '/test.html'
+              const display = /^https?:\/\//i.test(val) ? val : val;
+              return (
+                <Space size="small" wrap>
+                  <span style={{ maxWidth: 200, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{display}</span>
+                  <Button size="small" onClick={() => openInNewTab(record._rawUrl || val)}>열기</Button>
+                  <Button size="small" onClick={() => copyToClipboard(record._rawUrl || val)}>복사</Button>
+                </Space>
+              );
+            }
           },
-          // 클릭율은 제거하셨으니 컬럼에서 빼두었습니다
+          { title: '클릭수',     dataIndex: 'clicks',      key: 'clicks', align: 'right',
+            sorter: (a, b) => (a.clicks || 0) - (b.clicks || 0), defaultSortOrder: 'descend'
+          },
         ]}
       />
     </Card>

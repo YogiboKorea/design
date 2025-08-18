@@ -28,10 +28,55 @@ export default function Participation() {
   const [events, setEvents]               = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [couponNos, setCouponNos]         = useState([]);
+  const [couponPaths, setCouponPaths]     = useState([]); // 경로형 쿠폰값(있다면) 정규화해서 보관
   const [range, setRange]                 = useState([ dayjs().subtract(7, 'day'), dayjs() ]);
   const [minDate, setMinDate]             = useState(null);
   const [stats, setStats]                 = useState([]);
   const [loading, setLoading]             = useState(false);
+
+  // ─── helper: 선행 '/', 숫자-segment, skin-mobile, skin-<anything> 반복 제거 후 정규화 ----
+  const normalizePath = (urlCandidate) => {
+    if (!urlCandidate) return '/';
+    // 절대 URL이면 그대로 반환 (http(s) 포함)
+    if (/^https?:\/\//i.test(urlCandidate)) return urlCandidate;
+
+    let s = String(urlCandidate).trim();
+
+    // remove leading slashes so patterns match consistently ("/67/test.html" -> "67/test.html")
+    s = s.replace(/^\/+/, '');
+    if (!s) return '/';
+
+    // patterns to strip repeatedly from the start:
+    // - skin-mobile/
+    // - skin-<anything>/   (covers skin-skin98 etc)
+    // - numeric segment like "67/" or "123/"
+    const patterns = [
+      /^skin-mobile\/?/i,
+      /^skin-[^\/]+\/?/i,
+      /^\d+\/?/
+    ];
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const p of patterns) {
+        if (p.test(s)) {
+          s = s.replace(p, '');
+          changed = true;
+        }
+      }
+    }
+
+    if (!s) return '/';
+    if (!s.startsWith('/')) s = '/' + s;
+    return s;
+  };
+
+  const displayLabel = (u) => {
+    if (!u) return u;
+    if (/^https?:\/\//i.test(u)) return u;
+    return normalizePath(u);
+  };
 
   // 1) Load events & init first event + date
   useEffect(() => {
@@ -56,6 +101,7 @@ export default function Participation() {
     // clear UI immediately
     setStats([]);
     setCouponNos([]);
+    setCouponPaths([]);
     if (!mallId || !selectedEvent) return;
 
     (async () => {
@@ -65,15 +111,32 @@ export default function Participation() {
         const { data: evDetail } = await api.get(`/api/${mallId}/events/${selectedEvent}`);
         // extract coupons
         const all = [];
+        const paths = []; // 경로형 데이터만 모아둘 배열
         (evDetail.images||[]).forEach(img =>
           (img.regions||[]).forEach(r => {
             if (r.coupon) {
-              Array.isArray(r.coupon) ? all.push(...r.coupon) : all.push(r.coupon);
+              if (Array.isArray(r.coupon)) {
+                r.coupon.forEach(c => {
+                  all.push(c);
+                  // 경로처럼 보이는 값이면 정규화해서 paths에 넣음 (예: 'skin-mobile67/test1.html' 등)
+                  if (typeof c === 'string' && (c.includes('/') || /^skin-/i.test(c))) {
+                    paths.push(displayLabel(c));
+                  }
+                });
+              } else {
+                const c = r.coupon;
+                all.push(c);
+                if (typeof c === 'string' && (c.includes('/') || /^skin-/i.test(c))) {
+                  paths.push(displayLabel(c));
+                }
+              }
             }
           })
         );
         const newNos = Array.from(new Set(all));
         setCouponNos(newNos);
+        // couponPaths는 UI용(필요시)으로 저장 — API 쿼리에 쓰이는 couponNos는 변경하지 않음
+        setCouponPaths(Array.from(new Set(paths)));
 
         // reset date based on event
         const ev = events.find(e=>e._id===selectedEvent);
@@ -95,6 +158,7 @@ export default function Participation() {
           setStats(Array.isArray(statData) ? statData : []);
         }
       } catch (err) {
+        console.error(err);
         message.error('쿠폰 데이터 로드 중 오류가 발생했습니다.');
       } finally {
         setLoading(false);
@@ -156,7 +220,7 @@ export default function Participation() {
   }, {issued:0, used:0, unused:0, autoDel:0});
 
   return (
-    <Card title="쿠폰 다운로드 / 주문 완료 통계" bodyStyle={{ padding: isMobile?12:24 }} className="participation">
+    <Card title="쿠폰 다운로드 / 주문 완료 통계" bodyStyle={{ padding: isMobile?12:24 }} className="participation">
       <Space
         direction={isMobile?'vertical':'horizontal'}
         size="middle" wrap style={{ marginBottom:16 }}
@@ -217,6 +281,15 @@ export default function Participation() {
               자동삭제 수: {totals.autoDel.toLocaleString()}개)
             </Text>
           )}
+
+          {/* 참고: couponPaths는 이벤트에서 추출된 '경로 같은' 쿠폰값을 정규화해 보관합니다.
+              API 쿼리에 사용되는 couponNos는 절대 변경하지 않습니다. */}
+          {couponPaths.length > 0 && (
+            <Text type="secondary" style={{ display:'block', marginBottom:12 }}>
+              (정규화된 경로형 쿠폰 예시: {couponPaths.join(', ')})
+            </Text>
+          )}
+
           <Table
             columns={columns}
             dataSource={stats}

@@ -65,18 +65,29 @@ export default function Dashboard() {
 
   const [loading, setLoading] = useState(false);
 
-  // ─── helper: skin- 및 skin-mobile 접두사 제거 후 경로 정규화 ----
+  // ─── helper: 선행 '/', 숫자-segment, skin-mobile, skin-<anything> 반복 제거 후 정규화 ----
   const normalizePath = (urlCandidate) => {
     if (!urlCandidate) return '/';
-    // 절대 URL이면 그대로 반환
+    // 절대 URL이면 그대로 반환 (http(s) 포함)
     if (/^https?:\/\//i.test(urlCandidate)) return urlCandidate;
 
+    // 1) trim
     let s = String(urlCandidate).trim();
 
-    // 제거할 패턴들: skin-mobile/  또는  skin-<anything>/
-    const patterns = [/^skin-mobile\/?/i, /^skin-[^\/]+\/?/i];
+    // 2) remove leading slashes so patterns match consistently
+    s = s.replace(/^\/+/, ''); // "/skin-mobile67/test1.html" -> "skin-mobile67/test1.html"
+    if (!s) return '/';
 
-    // 반복해서 앞쪽에서 패턴을 제거
+    // 3) patterns to strip from the *start* repeatedly:
+    //    - skin-mobile/
+    //    - skin-<any>/
+    //    - numeric segment like "67/" or "123/"
+    const patterns = [
+      /^skin-mobile\/?/i,
+      /^skin-[^\/]+\/?/i,
+      /^\d+\/?/
+    ];
+
     let changed = true;
     while (changed) {
       changed = false;
@@ -88,10 +99,10 @@ export default function Dashboard() {
       }
     }
 
-    // 결과가 비어있으면 루트로
+    // 4) if result empty -> root
     if (!s) return '/';
 
-    // 앞에 슬래시 없으면 추가
+    // 5) ensure exactly one leading slash
     if (!s.startsWith('/')) s = '/' + s;
 
     return s;
@@ -120,7 +131,7 @@ export default function Dashboard() {
       .catch(() => {});
   }, [mallId]);
 
-  // ─── selectedEvent 변경 시: URL 목록 + 쿠폰 목록 + 날짜 초기화 ───────
+  // ─── selectedEvent 변경 시: URL 목록 + 쿠폰 목록 + 날짜날짜 초기화 ───────
   useEffect(() => {
     setCouponStats([]);
     setCouponTotals({ issued:0, used:0, unused:0, autoDel:0 });
@@ -142,7 +153,6 @@ export default function Dashboard() {
       .then(res => {
         const list = res.data || [];
         setUrls(list);
-        // 기본 선택: 가장 최근에 등록된 URL이 앞쪽에 오도록 보장되어 있다면 list[0]을 사용
         setSelectedUrl(list[0] || null);
       })
       .catch(() => message.error('URL 목록을 불러오지 못했습니다.'));
@@ -192,7 +202,6 @@ export default function Dashboard() {
     setLoading(true);
 
     const [s, e] = range.map(d => d.format('YYYY-MM-DD'));
-    // analytics API에 보낼 url 파라미터를 정규화된 값으로 사용
     const normalizedSelected = normalizePath(selectedUrl);
 
     const params = {

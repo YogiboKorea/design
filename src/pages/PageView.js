@@ -53,6 +53,50 @@ export default function StatEventVisitors() {
   const [data, setData]                   = useState([]);
   const [loading, setLoading]             = useState(false);
 
+  // ─── helper: 선행 '/', 숫자-segment, skin-mobile, skin-<anything> 반복 제거 후 정규화 ----
+  const normalizePath = (urlCandidate) => {
+    if (!urlCandidate) return '/';
+    // 절대 URL이면 그대로 반환 (http(s) 포함)
+    if (/^https?:\/\//i.test(urlCandidate)) return urlCandidate;
+
+    let s = String(urlCandidate).trim();
+
+    // remove leading slashes so patterns match consistently ("/67/test.html" -> "67/test.html")
+    s = s.replace(/^\/+/, '');
+    if (!s) return '/';
+
+    // patterns to strip repeatedly from the start:
+    // - skin-mobile/
+    // - skin-<anything>/   (covers skin-skin98 etc)
+    // - numeric segment like "67/" or "123/"
+    const patterns = [
+      /^skin-mobile\/?/i,
+      /^skin-[^\/]+\/?/i,
+      /^\d+\/?/
+    ];
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const p of patterns) {
+        if (p.test(s)) {
+          s = s.replace(p, '');
+          changed = true;
+        }
+      }
+    }
+
+    if (!s) return '/';
+    if (!s.startsWith('/')) s = '/' + s;
+    return s;
+  };
+
+  const displayLabel = (u) => {
+    if (!u) return u;
+    if (/^https?:\/\//i.test(u)) return u;
+    return normalizePath(u);
+  };
+
   // ─── 1) 이벤트 목록 로드 & 기본 설정 ───────────────────────
   useEffect(() => {
     if (!mallId) return;
@@ -126,13 +170,15 @@ export default function StatEventVisitors() {
     setLoading(true);
     const [start, end] = range.map(d => d.format('YYYY-MM-DD'));
     try {
+      const normalizedSelected = normalizePath(selectedUrl);
+
       const visRes = await api.get(
         `/api/${mallId}/analytics/${selectedEvent}/visitors-by-date`,
         {
           params: {
             start_date: `${start}T00:00:00+09:00`,
             end_date:   `${end}T23:59:59.999+09:00`,
-            url:        selectedUrl,
+            url:        normalizedSelected,
           }
         }
       );
@@ -175,6 +221,7 @@ export default function StatEventVisitors() {
     if (mallId && selectedEvent && selectedUrl) {
       fetchStats();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mallId, selectedEvent, selectedUrl, range]);
 
   // ─── 5) 테이블 컬럼 정의 ─────────────────────────────────
@@ -202,7 +249,7 @@ export default function StatEventVisitors() {
           />
           <Select
             placeholder="URL 선택"
-            options={urls.map(u => ({ label: u, value: u }))}
+            options={urls.map(u => ({ label: displayLabel(u), value: u }))}
             value={selectedUrl}
             onChange={setSelectedUrl}
             allowClear
